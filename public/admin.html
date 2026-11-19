@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#F7FAF8">
+  <title>管理中心</title>
+  <meta name="description" content="管理中心：订单、收款核验、账号、赠货码与审计。">
+  <link rel="icon" type="image/svg+xml" href="/img/favicon.svg">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/admin.css">
+</head>
+<body class="admin-body">
+  <a class="skip-link" href="#admin-view">跳到主要内容</a>
+
+  <div id="admin-app">
+    <div class="admin-boot">
+      <span class="spinner" aria-hidden="true"></span>
+      <p>正在装载管理中心…</p>
+    </div>
+  </div>
+
+  <div id="modal-root"></div>
+  <div class="toast-stack" id="toast-root" role="status" aria-live="polite"></div>
+
+  <noscript>
+    <div class="noscript-tip">请开启浏览器的 JavaScript 后再访问管理中心。</div>
+  </noscript>
+
+  <script type="module" src="/js/admin/app.js"></script>
+</body>
+</html>
