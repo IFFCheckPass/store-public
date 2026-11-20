@@ -184,15 +184,15 @@ function colorRowHtml(color, index, total = 0) {
       <img class="variant-thumb" data-color-preview="${index}" src="${escapeHtml(
         safeImage(color.image)
       )}" alt="">
-      <label class="check-line"><input type="checkbox" data-field="color-custom" ${color.custom ? 'checked' : ''}><span>定制项</span></label>
       <button class="btn btn--sm btn--line" type="button" data-remove-color="${index}">删除</button>
+      <label class="check-line"><input type="checkbox" data-field="color-custom" ${color.custom ? 'checked' : ''}><span>定制项</span></label>
     </div>
   `;
 }
 
 function patternRowHtml(pattern, index, total = 0) {
   return `
-    <div class="variant-row variant-row--color" data-pattern-row data-index="${index}">
+    <div class="variant-row variant-row--pattern" data-pattern-row data-index="${index}">
       ${rowMoveHtml('pattern', index, total)}
       <input class="input" data-field="pattern-name" type="text" maxlength="30" placeholder="图案名称，如 校徽" value="${escapeHtml(
         pattern.name || ''
@@ -207,9 +207,9 @@ function patternRowHtml(pattern, index, total = 0) {
       )}" alt="">
       <input class="input" data-field="pattern-delta" type="number" min="0" step="0.01" placeholder="加价（元）" value="${escapeHtml(
         (Number(pattern.delta || 0) / 100).toFixed(2)
-      )}" style="max-width:110px">
-      <label class="check-line"><input type="checkbox" data-field="pattern-custom" ${pattern.custom ? 'checked' : ''}><span>定制项</span></label>
+      )}">
       <button class="btn btn--sm btn--line" type="button" data-remove-pattern="${index}">删除</button>
+      <label class="check-line"><input type="checkbox" data-field="pattern-custom" ${pattern.custom ? 'checked' : ''}><span>定制项</span></label>
     </div>
   `;
 }

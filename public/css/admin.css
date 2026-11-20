@@ -1387,14 +1387,22 @@
 
 .variant-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px auto;
+  /* 排序按钮 + 规格名 + 加价 + 删除 */
+  grid-template-columns: auto minmax(0, 1fr) 150px auto;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
 }
 .variant-row--color {
-  grid-template-columns: 44px minmax(0, 0.9fr) minmax(0, 1.2fr) auto 48px auto;
+  /* 排序按钮 + 色块 + 名称 + 图片 + 上传 + 缩略图 + 删除 */
+  grid-template-columns: auto 44px minmax(0, 0.9fr) minmax(0, 1.2fr) auto 48px auto;
 }
+.variant-row--pattern {
+  /* 排序按钮 + 图案名 + 叠加图 + 上传 + 缩略图 + 加价 + 删除 */
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) auto 48px 110px auto;
+}
+/* 定制项勾选单独占一行，避免挤乱主行 */
+.variant-row .check-line { grid-column: 1 / -1; }
 .color-swab {
   width: 38px;
   height: 38px;
@@ -1482,6 +1490,7 @@
 @media (max-width: 860px) {
   .variant-row,
   .variant-row--color,
+  .variant-row--pattern,
   .tutorial-row { grid-template-columns: minmax(0, 1fr); }
   .media-editor { flex-direction: column; }
   .media-preview { width: 100%; height: 160px; }
@@ -1499,6 +1508,13 @@
   background: var(--surface-2);
 }
 
-/* 商品编辑：选项排序按钮 */
-.row-move { display: inline-flex; gap: 2px; flex-shrink: 0; }
-.row-move .btn { padding: 0 7px; min-width: 0; font-size: 13px; line-height: 30px; }
+/* 商品编辑：选项排序按钮（竖排两个小箭头） */
+.row-move { display: inline-flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.row-move .btn {
+  padding: 0 6px;
+  min-width: 0;
+  min-height: 0;
+  font-size: 12px;
+  line-height: 20px;
+  border-radius: 7px;
+}
