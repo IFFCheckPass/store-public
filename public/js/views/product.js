@@ -231,7 +231,11 @@ export async function render(root, params = {}) {
                        (color, index) => `
                          <button class="swatch${index === 0 ? ' is-active' : ''}" type="button" data-swatch-index="${index}">
                            <i class="swatch__dot" style="background:${escapeHtml(color.hex)}"></i>
-                           ${escapeHtml(color.name)}
+                           ${escapeHtml(color.name)}${
+                             color.delta
+                               ? `<small class="swatch__delta">${deltaText(color.delta)}</small>`
+                               : ''
+                           }
                          </button>`
                      )
                      .join('')}
@@ -366,7 +370,11 @@ export async function render(root, params = {}) {
         mainEl.style.opacity = '1';
       }, 120);
     }
-    if (colorValueEl) colorValueEl.textContent = color.name;
+    if (colorValueEl) {
+      colorValueEl.textContent = color.delta
+        ? `${color.name} · ${deltaText(color.delta)}`
+        : color.name;
+    }
     if (colorWrap) {
       colorWrap.querySelectorAll('.swatch').forEach((swatch, i) => {
         swatch.classList.toggle('is-active', i === colorIndex);
@@ -377,6 +385,7 @@ export async function render(root, params = {}) {
         thumb.classList.toggle('is-active', i === colorIndex);
       });
     }
+    paint();
     paintCustomHint();
   };
 
