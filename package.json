@@ -9,12 +9,14 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "optimize-images": "node scripts/optimize-images.mjs"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "express": "^5.1.0",
     "jose": "^6.0.11",
+    "sharp": "^0.32.6",
     "sql.js": "^1.13.0"
   }
 }

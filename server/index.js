@@ -15,6 +15,7 @@ import settingsRouter from './routes/settings.js';
 import adminSettingsRouter from './routes/admin-settings.js';
 import adminProductsRouter from './routes/admin-products.js';
 import uploadsRouter from './routes/uploads.js';
+import { optimizeDirectory, serveWebpWhenSupported } from './lib/images.js';
 
 const ROOT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
@@ -43,6 +44,9 @@ app.use('/api/admin/products', adminProductsRouter);
 app.use('/api/admin/uploads', uploadsRouter);
 app.use('/api/admin', adminRouter);
 
+// 浏览器支持 WebP 时自动返回同名 800px WebP（数据里的路径不变，老浏览器仍拿原图）
+app.use('/img', serveWebpWhenSupported(path.join(PUBLIC_DIR, 'img')));
+app.use('/uploads', serveWebpWhenSupported(UPLOADS_DIR));
 app.use('/uploads', express.static(UPLOADS_DIR));
 // 前端是免构建的原生 ESM，更新后必须立即生效：让浏览器每次回源验证，别吃 4 小时缓存
 app.use(
@@ -99,3 +103,17 @@ const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[campus-sales] server running at http://0.0.0.0:${PORT}`);
 });
+
+// 启动后异步补齐 WebP：新增/替换的图片自动转换，不阻塞服务启动
+setTimeout(() => {
+  Promise.all([
+    optimizeDirectory(path.join(PUBLIC_DIR, 'img')),
+    optimizeDirectory(UPLOADS_DIR),
+  ])
+    .then(([img, uploads]) => {
+      console.log(
+        `[images] WebP 就绪：public/img 新生成 ${img.created}/${img.total}，uploads 新生成 ${uploads.created}/${uploads.total}`
+      );
+    })
+    .catch((err) => console.warn('[images] WebP 预热失败:', err?.message || err));
+}, 1200);
