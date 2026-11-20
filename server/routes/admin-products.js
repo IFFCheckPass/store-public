@@ -58,10 +58,15 @@ function readColors(value) {
     if (name.length > 30) throw badRequest('颜色名称不能超过 30 个字符');
     const hex = str(item.hex) || '#D8E6E0';
     if (!COLOR_RE.test(hex)) throw badRequest('颜色值需要是 #RRGGBB');
+    const delta = Number(item.delta ?? 0);
+    if (!Number.isInteger(delta) || delta < -100000 || delta > 10000000) {
+      throw badRequest(`第 ${index + 1} 个颜色加价需为 -1000 到 100000 元之间的金额`);
+    }
     return {
       name,
       hex,
       image: imageUrl(item.image, `第 ${index + 1} 个颜色图片`),
+      delta,
       custom: item.custom === true || item.custom === 1,
     };
   });

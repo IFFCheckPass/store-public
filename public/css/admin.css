@@ -1394,8 +1394,8 @@
   margin-bottom: 8px;
 }
 .variant-row--color {
-  /* 排序按钮 + 色块 + 名称 + 图片 + 上传 + 缩略图 + 删除 */
-  grid-template-columns: auto 44px minmax(0, 0.9fr) minmax(0, 1.2fr) auto 48px auto;
+  /* 排序按钮 + 色块 + 名称 + 图片 + 上传 + 缩略图 + 加价 + 删除 */
+  grid-template-columns: auto 44px minmax(0, 0.9fr) minmax(0, 1.2fr) auto 48px 110px auto;
 }
 .variant-row--pattern {
   /* 排序按钮 + 图案名 + 叠加图 + 上传 + 缩略图 + 加价 + 删除 */

@@ -184,6 +184,9 @@ function colorRowHtml(color, index, total = 0) {
       <img class="variant-thumb" data-color-preview="${index}" src="${escapeHtml(
         safeImage(color.image)
       )}" alt="">
+      <input class="input" data-field="color-delta" type="number" min="-1000" step="0.01" placeholder="加价（元）" value="${escapeHtml(
+        (Number(color.delta || 0) / 100).toFixed(2)
+      )}">
       <button class="btn btn--sm btn--line" type="button" data-remove-color="${index}">删除</button>
       <label class="check-line"><input type="checkbox" data-field="color-custom" ${color.custom ? 'checked' : ''}><span>定制项</span></label>
     </div>
@@ -238,6 +241,7 @@ function openEditor(product) {
             name: item.name,
             hex: item.hex || '#D8E6E0',
             image: item.image || '',
+            delta: Number(item.delta) || 0,
             custom: !!item.custom,
           }))
         : [{ name: '经典色', hex: '#12A67A', image: '', custom: false }],
@@ -417,6 +421,7 @@ function openEditor(product) {
       name: row.querySelector('[data-field="color-name"]').value,
       hex: row.querySelector('[data-field="color-hex"]').value,
       image: row.querySelector('[data-field="color-image"]').value.trim(),
+      delta: Math.round((Number(row.querySelector('[data-field="color-delta"]').value) || 0) * 100),
       custom: row.querySelector('[data-field="color-custom"]').checked,
     }));
     draft.patterns = Array.from(patternsBox.querySelectorAll('[data-pattern-row]')).map((row) => ({
@@ -613,6 +618,7 @@ function openEditor(product) {
         name: item.name.trim(),
         hex: item.hex,
         image: item.image,
+        delta: item.delta,
         custom: !!item.custom,
       })),
       patterns: draft.patterns.map((item) => ({

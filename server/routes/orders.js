@@ -373,6 +373,7 @@ router.post('/', requireUser, (req, res, next) => {
         const unitPrice =
           product.base_price +
           (spec ? Number(spec.delta) || 0 : 0) +
+          (color ? Number(color.delta) || 0 : 0) +
           (pattern ? Number(pattern.delta) || 0 : 0);
         // 颜色或图案里能选「定制」项：选中即标记该条目为定制
         const isCustomItem = Boolean((color && color.custom) || (pattern && pattern.custom));

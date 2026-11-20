@@ -23,6 +23,7 @@ function normalizeColors(product) {
     name: String(color.name || `配色 ${index + 1}`),
     hex: safeColor(color.hex),
     image: safeImage(color.image || product.coverUrl),
+    delta: Number(color.delta) || 0,
     custom: Boolean(color.custom)
   }));
 }
@@ -124,6 +125,7 @@ export async function render(root, params = {}) {
       0,
       basePrice +
         (currentSpec().delta || 0) +
+        (currentColor().delta || 0) +
         (isCustom ? currentPattern().delta || 0 : 0)
     );
 

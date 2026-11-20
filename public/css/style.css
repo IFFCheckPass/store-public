@@ -2501,6 +2501,7 @@ body.is-locked { overflow: hidden; }
 }
 .custom-hint[hidden] { display: none; }
 .custom-hint strong { flex-shrink: 0; }
+.swatch__delta { margin-left: 4px; font-size: 10.5px; font-weight: 800; color: var(--brand-ink, var(--brand)); }
 .variant-tag--custom {
   background: #FFF1DC;
   color: #B4690E;
