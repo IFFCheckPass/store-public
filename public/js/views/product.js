@@ -22,7 +22,19 @@ function normalizeColors(product) {
   return colors.map((color, index) => ({
     name: String(color.name || `配色 ${index + 1}`),
     hex: safeColor(color.hex),
-    image: safeImage(color.image || product.coverUrl)
+    image: safeImage(color.image || product.coverUrl),
+    custom: Boolean(color.custom)
+  }));
+}
+
+/** 定制图案：叠加在颜色底图上的透明图层，可单独加价、可标记为「定制」项 */
+function normalizePatterns(product) {
+  const patterns = Array.isArray(product.patterns) ? product.patterns : [];
+  return patterns.map((pattern, index) => ({
+    name: String(pattern.name || `图案 ${index + 1}`),
+    image: safeImage(pattern.image || ''),
+    delta: Number(pattern.delta) || 0,
+    custom: Boolean(pattern.custom)
   }));
 }
 
@@ -88,6 +100,8 @@ export async function render(root, params = {}) {
 
   const specs = normalizeSpecs(product);
   const colors = normalizeColors(product);
+  const patterns = normalizePatterns(product);
+  const isCustom = Boolean(product.isCustom) && patterns.length > 0;
   const isPresale = !!product.isPresale;
   const presaleEta = String(product.presaleEta || '').trim();
   const stockRaw = Number(product.stock);
@@ -98,11 +112,20 @@ export async function render(root, params = {}) {
 
   let specIndex = 0;
   let colorIndex = 0;
+  let patternIndex = 0;
   let quantity = 1;
 
   const currentSpec = () => specs[specIndex] || { name: '', delta: 0 };
-  const currentColor = () => colors[colorIndex] || { name: '', hex: '', image: safeImage(product.coverUrl) };
-  const unitPrice = () => Math.max(0, basePrice + (currentSpec().delta || 0));
+  const currentColor = () =>
+    colors[colorIndex] || { name: '', hex: '', image: safeImage(product.coverUrl), custom: false };
+  const currentPattern = () => patterns[patternIndex] || { name: '', image: '', delta: 0, custom: false };
+  const unitPrice = () =>
+    Math.max(
+      0,
+      basePrice +
+        (currentSpec().delta || 0) +
+        (isCustom ? currentPattern().delta || 0 : 0)
+    );
 
   const mainImage = colors.length ? colors[0].image : safeImage(product.coverUrl);
 
@@ -128,8 +151,15 @@ export async function render(root, params = {}) {
 
       <div class="detail-layout">
         <div class="gallery">
-          <div class="gallery-main">
-            <img id="main-image" src="${escapeHtml(mainImage)}" alt="${escapeHtml(product.name || '商品图片')}">
+          <div class="gallery-main${isCustom ? ' is-custom' : ''}">
+            ${
+              isCustom
+                ? `<div class="custom-preview">
+                     <img id="main-image" src="${escapeHtml(mainImage)}" alt="${escapeHtml(product.name || '商品图片')}">
+                     <img id="pattern-layer" class="custom-layer" src="${escapeHtml(patterns[0].image)}" alt="" aria-hidden="true">
+                   </div>`
+                : `<img id="main-image" src="${escapeHtml(mainImage)}" alt="${escapeHtml(product.name || '商品图片')}">`
+            }
             ${product.needProduction ? '<span class="badge badge--make">定制 · 下单后制作</span>' : ''}
             ${isPresale ? '<span class="badge badge--presale">预售</span>' : ''}
           </div>
@@ -205,6 +235,34 @@ export async function render(root, params = {}) {
                </div>`
             : ''}
 
+          ${
+            isCustom
+              ? `<div class="option-group">
+                   <div class="option-head">
+                     <span class="option-label">选择图案</span>
+                     <span class="option-value" data-pattern-value>${escapeHtml(patterns[0].name)} · ${deltaText(patterns[0].delta)}</span>
+                   </div>
+                   <div class="pattern-options" data-patterns>
+                     ${patterns
+                       .map(
+                         (pattern, index) => `
+                           <button class="pattern-option${index === 0 ? ' is-active' : ''}" type="button" data-pattern-index="${index}" aria-label="选择图案 ${escapeHtml(pattern.name)}">
+                             <img src="${escapeHtml(pattern.image)}" alt="">
+                             <span class="pattern-option__name">${escapeHtml(pattern.name)}${pattern.custom ? ' · 定制' : ''}</span>
+                             <small>${deltaText(pattern.delta)}</small>
+                           </button>`
+                       )
+                       .join('')}
+                   </div>
+                 </div>`
+              : ''
+          }
+
+          <div class="custom-hint" data-custom-hint hidden>
+            <strong>定制项</strong>
+            <span>你选择了「定制」选项。下单后我们会与你确认定制内容，制作周期可能比现货更长。</span>
+          </div>
+
           <div class="buy-panel">
             <div class="buy-row">
               <div class="qty" role="group" aria-label="购买数量">
@@ -249,6 +307,16 @@ export async function render(root, params = {}) {
   const addBtn = root.querySelector('[data-add]');
   const specValueEl = root.querySelector('[data-spec-value]');
   const colorValueEl = root.querySelector('[data-color-value]');
+  const patternWrap = root.querySelector('[data-patterns]');
+  const patternValueEl = root.querySelector('[data-pattern-value]');
+  const patternLayer = root.querySelector('#pattern-layer');
+  const customHint = root.querySelector('[data-custom-hint]');
+
+  const paintCustomHint = () => {
+    if (!customHint) return;
+    const hit = Boolean(currentColor().custom || (isCustom && currentPattern().custom));
+    customHint.hidden = !hit;
+  };
 
   const paint = () => {
     if (priceEl) priceEl.innerHTML = `<span class="price__unit">¥</span>${formatMoney(unitPrice()).slice(1)}`;
@@ -301,6 +369,7 @@ export async function render(root, params = {}) {
         thumb.classList.toggle('is-active', i === colorIndex);
       });
     }
+    paintCustomHint();
   };
 
   if (colorWrap) {
@@ -316,6 +385,27 @@ export async function render(root, params = {}) {
       const button = event.target.closest('[data-color-index]');
       if (!button) return;
       applyColor(Number(button.dataset.colorIndex) || 0);
+    });
+  }
+
+  if (patternWrap) {
+    const applyPattern = (index) => {
+      patternIndex = Math.max(0, Math.min(patterns.length - 1, index));
+      const pattern = currentPattern();
+      if (patternLayer) patternLayer.src = pattern.image;
+      if (patternValueEl) {
+        patternValueEl.textContent = `${pattern.name} · ${deltaText(pattern.delta)}`;
+      }
+      patternWrap.querySelectorAll('.pattern-option').forEach((el, i) => {
+        el.classList.toggle('is-active', i === patternIndex);
+      });
+      paint();
+      paintCustomHint();
+    };
+    patternWrap.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-pattern-index]');
+      if (!button) return;
+      applyPattern(Number(button.dataset.patternIndex) || 0);
     });
   }
 
@@ -345,6 +435,9 @@ export async function render(root, params = {}) {
         specName: currentSpec().name,
         colorName: colors.length ? color.name : '',
         colorHex: colors.length ? color.hex : '',
+        patternName: isCustom ? currentPattern().name : '',
+        patternImage: isCustom ? currentPattern().image : '',
+        isCustom: Boolean(color.custom || (isCustom && currentPattern().custom)),
         unitPrice: unitPrice(),
         quantity,
         stock: isPresale ? 0 : stock
@@ -363,4 +456,5 @@ export async function render(root, params = {}) {
   }
 
   paint();
+  paintCustomHint();
 }

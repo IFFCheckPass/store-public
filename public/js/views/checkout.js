@@ -547,6 +547,7 @@ export async function render(root, params = {}, query = {}) {
           productId: item.productId,
           specName: item.specName,
           colorName: item.colorName,
+          patternName: item.patternName,
           quantity: item.quantity
         })),
         deliveryMethod,

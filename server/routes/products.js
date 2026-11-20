@@ -27,6 +27,8 @@ function productView(row) {
     presaleEta: row.presale_eta || '',
     specs: parseJson(row.specs_json, []),
     colors: parseJson(row.colors_json, []),
+    isCustom: row.is_custom === 1,
+    patterns: parseJson(row.patterns_json, []),
   };
 }
 

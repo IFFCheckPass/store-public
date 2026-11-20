@@ -16,6 +16,8 @@ function itemHtml(item) {
           ${item.colorName
             ? `<span class="variant-tag"><i style="background:${escapeHtml(safeColor(item.colorHex))}"></i>${escapeHtml(item.colorName)}</span>`
             : ''}
+          ${item.patternName ? `<span class="variant-tag">图案 · ${escapeHtml(item.patternName)}</span>` : ''}
+          ${item.isCustom ? '<span class="variant-tag variant-tag--custom">定制</span>' : ''}
         </div>
         <div class="cart-unit">单价 <strong>${formatMoney(item.unitPrice)}</strong></div>
       </div>

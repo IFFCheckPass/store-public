@@ -6,8 +6,8 @@
 const STORAGE_KEY = 'campus_cart_v1';
 const MAX_QUANTITY = 99;
 
-function makeKey(productId, specName, colorName) {
-  return `${productId}|${specName || ''}|${colorName || ''}`;
+function makeKey(productId, specName, colorName, patternName) {
+  return `${productId}|${specName || ''}|${colorName || ''}|${patternName || ''}`;
 }
 
 function toInt(value, fallback = 0) {
@@ -20,13 +20,18 @@ function normalize(item) {
   const quantity = Math.max(1, toInt(item.quantity, 1));
   const stock = Math.max(0, toInt(item.stock, 0));
   return {
-    key: item.key || makeKey(item.productId, item.specName, item.colorName),
+    key:
+      item.key ||
+      makeKey(item.productId, item.specName, item.colorName, item.patternName),
     productId: item.productId,
     name: String(item.name || '未命名商品'),
     imageUrl: item.imageUrl || '',
     specName: item.specName || '',
     colorName: item.colorName || '',
     colorHex: item.colorHex || '',
+    patternName: item.patternName || '',
+    patternImage: item.patternImage || '',
+    isCustom: Boolean(item.isCustom),
     unitPrice: Math.max(0, toInt(item.unitPrice, 0)),
     quantity: stock > 0 ? Math.min(quantity, stock, MAX_QUANTITY) : Math.min(quantity, MAX_QUANTITY),
     stock

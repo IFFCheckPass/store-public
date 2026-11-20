@@ -2435,3 +2435,66 @@ body.is-locked { overflow: hidden; }
   object-fit: cover;
   border-radius: inherit;
 }
+
+/* ===== 定制商品：底图 + 图案叠加预览 ===== */
+.custom-preview { position: relative; }
+.custom-preview > img:first-child { display: block; width: 100%; height: auto; }
+.custom-preview .custom-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+.pattern-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.pattern-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 86px;
+  padding: 6px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color .2s var(--ease), transform .2s var(--ease);
+}
+.pattern-option:hover { transform: translateY(-2px); }
+.pattern-option img {
+  width: 70px;
+  height: 70px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--bg-soft);
+}
+.pattern-option__name { font-size: 12px; font-weight: 700; color: var(--ink); }
+.pattern-option small { font-size: 10.5px; color: var(--muted); }
+.pattern-option.is-active { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(23, 184, 144, .14); }
+.custom-hint {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 14px 0 0;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: #FFF7E8;
+  border: 1px solid #F5D9A8;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #8A5A12;
+}
+.custom-hint[hidden] { display: none; }
+.custom-hint strong { flex-shrink: 0; }
+.variant-tag--custom {
+  background: #FFF1DC;
+  color: #B4690E;
+  border-color: #F3D19C;
+  font-weight: 800;
+}
+

@@ -91,6 +91,9 @@ export function buildOrderDetail(orderNo) {
     specName: it.spec_name,
     colorName: it.color_name,
     colorHex: it.color_hex,
+    patternName: it.pattern_name || '',
+    patternImage: it.pattern_image || '',
+    isCustom: it.is_custom === 1,
     imageUrl: it.image_url,
     unitPrice: it.unit_price,
     quantity: it.quantity,
@@ -135,6 +138,8 @@ export function buildOrderDetail(orderNo) {
       productName: t.product_name,
       specName: t.spec_name,
       colorName: t.color_name,
+      patternName: t.pattern_name || '',
+      isCustom: t.is_custom === 1,
       quantity: t.quantity,
     }));
 
@@ -173,6 +178,7 @@ export function buildOrderDetail(orderNo) {
     contactValue: order.contact_value,
     remark: order.remark,
     giftCode: order.gift_code,
+    hasCustom: order.has_custom === 1,
     items,
     timeline,
     payment,
@@ -216,6 +222,7 @@ export function summarizeOrders(rows) {
       itemCount: stat.count,
       firstImage: stat.firstImage,
       firstProductName: stat.firstProductName,
+      hasCustom: row.has_custom === 1,
       customerName: row.customer_name,
       className: row.class_name,
       seatNo: row.seat_no,
@@ -229,9 +236,9 @@ export function summarizeOrders(rows) {
 export function createExternalTasks(order, items) {
   const insert = db.prepare(`
     INSERT INTO production_tasks (type, order_id, order_item_id, order_no, product_name, spec_name, color_name, image_url,
-      quantity, class_name, time_slot, contact_type, contact_value, delivery_method, delivery_detail, status, assignee_id,
-      note, created_at, updated_at)
-    VALUES ('external', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, '', datetime('now','localtime'), datetime('now','localtime'))
+      pattern_name, is_custom, quantity, class_name, time_slot, contact_type, contact_value, delivery_method, delivery_detail,
+      status, assignee_id, note, created_at, updated_at)
+    VALUES ('external', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, '', datetime('now','localtime'), datetime('now','localtime'))
   `);
   let created = 0;
   for (const item of items) {
@@ -244,6 +251,8 @@ export function createExternalTasks(order, items) {
       item.spec_name,
       item.color_name,
       item.image_url,
+      item.pattern_name || '',
+      item.is_custom ? 1 : 0,
       item.quantity,
       order.class_name,
       order.time_slot,
@@ -281,6 +290,7 @@ function validateItems(itemsInput) {
       quantity,
       specName: str(raw.specName),
       colorName: str(raw.colorName),
+      patternName: str(raw.patternName),
     };
   });
 }
@@ -348,17 +358,30 @@ router.post('/', requireUser, (req, res, next) => {
           color = colors.find((c) => c.name === item.colorName);
           if (!color) throw badRequest(`商品「${product.name}」的颜色不存在`);
         }
+        const patterns = parseJsonArray(product.patterns_json);
+        let pattern = null;
+        if (patterns.length > 0) {
+          pattern = patterns.find((p) => p.name === item.patternName);
+          if (!pattern) throw badRequest(`商品「${product.name}」的图案不存在`);
+        }
 
         const isPresale = product.is_presale === 1;
         const stock = Number(product.stock);
         const needed = requiredQty.get(item.productId);
         if (!isPresale && stock < needed) throw badRequest(`商品「${product.name}」库存不足`);
 
-        const unitPrice = product.base_price + (spec ? Number(spec.delta) || 0 : 0);
+        const unitPrice =
+          product.base_price +
+          (spec ? Number(spec.delta) || 0 : 0) +
+          (pattern ? Number(pattern.delta) || 0 : 0);
+        // 颜色或图案里能选「定制」项：选中即标记该条目为定制
+        const isCustomItem = Boolean((color && color.custom) || (pattern && pattern.custom));
         resolved.push({
           product,
           spec,
           color,
+          pattern,
+          isCustom: isCustomItem,
           quantity: item.quantity,
           unitPrice,
           subtotal: unitPrice * item.quantity,
@@ -377,6 +400,7 @@ router.post('/', requireUser, (req, res, next) => {
           productId: it.product.id,
           specName: it.spec ? it.spec.name : '',
           colorName: it.color ? it.color.name : '',
+          patternName: it.pattern ? it.pattern.name : '',
           subtotal: it.subtotal,
         }));
         const calc = computeGiftDiscount(giftRow, giftItems);
@@ -396,8 +420,8 @@ router.post('/', requireUser, (req, res, next) => {
       const insertOrder = db.prepare(`
         INSERT INTO orders (order_no, user_id, customer_name, class_name, seat_no, student_id, delivery_method, delivery_detail,
           time_slot, contact_type, contact_value, remark, payment_method, status, total_amount, original_amount, discount_amount,
-          gift_code, reject_reason, created_at, updated_at, paid_at, completed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now','localtime'), datetime('now','localtime'), NULL, NULL)
+          gift_code, has_custom, reject_reason, created_at, updated_at, paid_at, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now','localtime'), datetime('now','localtime'), NULL, NULL)
       `);
 
       let info = null;
@@ -422,7 +446,8 @@ router.post('/', requireUser, (req, res, next) => {
             payableAmount,
             totalAmount,
             giftDiscount,
-            giftDiscount > 0 ? giftRow.code : null
+            giftDiscount > 0 ? giftRow.code : null,
+            resolved.some((it) => it.isCustom) ? 1 : 0
           );
           orderNo = candidate;
         } catch (err) {
@@ -435,8 +460,8 @@ router.post('/', requireUser, (req, res, next) => {
 
       const insertItem = db.prepare(`
         INSERT INTO order_items (order_id, product_id, product_name, spec_name, color_name, color_hex, image_url,
-          unit_price, quantity, subtotal, need_production, discount_amount, gift_free)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          pattern_name, pattern_image, is_custom, unit_price, quantity, subtotal, need_production, discount_amount, gift_free)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const itemRows = [];
       for (let index = 0; index < resolved.length; index += 1) {
@@ -451,6 +476,9 @@ router.post('/', requireUser, (req, res, next) => {
           it.color ? it.color.name : '',
           it.color ? it.color.hex : null,
           it.color ? it.color.image : it.product.cover_url,
+          it.pattern ? it.pattern.name : '',
+          it.pattern ? it.pattern.image : '',
+          it.isCustom ? 1 : 0,
           it.unitPrice,
           it.quantity,
           it.subtotal,
@@ -463,6 +491,8 @@ router.post('/', requireUser, (req, res, next) => {
           product_name: it.product.name,
           spec_name: it.spec ? it.spec.name : '',
           color_name: it.color ? it.color.name : '',
+          pattern_name: it.pattern ? it.pattern.name : '',
+          is_custom: it.isCustom ? 1 : 0,
           image_url: it.color ? it.color.image : it.product.cover_url,
           quantity: it.quantity,
           need_production: it.needProduction ? 1 : 0,
@@ -476,9 +506,9 @@ router.post('/', requireUser, (req, res, next) => {
       const taskSummary = itemRows.map((it) => `${it.product_name}×${it.quantity}`).join('、');
       const internalInfo = db.prepare(`
         INSERT INTO production_tasks (type, order_id, order_item_id, order_no, product_name, spec_name, color_name, image_url,
-          quantity, class_name, time_slot, contact_type, contact_value, delivery_method, delivery_detail, status, assignee_id,
-          note, created_at, updated_at)
-        VALUES ('internal', ?, NULL, ?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?, 'pending_pack', NULL, '',
+          pattern_name, is_custom, quantity, class_name, time_slot, contact_type, contact_value, delivery_method, delivery_detail,
+          status, assignee_id, note, created_at, updated_at)
+        VALUES ('internal', ?, NULL, ?, ?, '', '', ?, '', 0, ?, ?, ?, ?, ?, ?, ?, 'pending_pack', NULL, '',
           datetime('now','localtime'), datetime('now','localtime'))
       `).run(
         orderId,

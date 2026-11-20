@@ -244,6 +244,15 @@ ensureColumn('gift_codes', 'scope_type', "TEXT NOT NULL DEFAULT 'all'");
 ensureColumn('gift_codes', 'scope_json', 'TEXT');
 ensureColumn('products', 'is_presale', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('products', 'presale_eta', 'TEXT');
+// 定制商品：is_custom=1 时详情页用定制界面（颜色底图 + 图案叠加），patterns_json 存图案选项
+ensureColumn('products', 'is_custom', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('products', 'patterns_json', 'TEXT');
+ensureColumn('order_items', 'pattern_name', 'TEXT');
+ensureColumn('order_items', 'pattern_image', 'TEXT');
+ensureColumn('order_items', 'is_custom', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('orders', 'has_custom', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('production_tasks', 'pattern_name', 'TEXT');
+ensureColumn('production_tasks', 'is_custom', 'INTEGER NOT NULL DEFAULT 0');
 
 function img(prompt) {
   return `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(prompt)}&image_size=square`;

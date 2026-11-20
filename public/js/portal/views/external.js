@@ -184,6 +184,7 @@ function cardHtml(task) {
   const open = state.open.has(task.id);
   const spec = text(task.specName, '');
   const color = text(task.colorName, '');
+  const pattern = text(task.patternName, '');
   const quantity = num(task.quantity);
   const events = Array.isArray(task.events) ? task.events : [];
 
@@ -206,6 +207,8 @@ function cardHtml(task) {
           <div class="task-tags">
             <span class="variant-tag">规格 · ${escapeHtml(spec || '默认')}</span>
             <span class="variant-tag">颜色 · ${escapeHtml(color || '默认')}</span>
+            ${pattern ? `<span class="variant-tag">图案 · ${escapeHtml(pattern)}</span>` : ''}
+            ${task.isCustom ? '<span class="variant-tag variant-tag--custom">定制</span>' : ''}
           </div>
         </div>
         <div class="task-qty"><strong>×${quantity}</strong>数量</div>

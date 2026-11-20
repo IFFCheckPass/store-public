@@ -62,7 +62,30 @@ function readColors(value) {
       name,
       hex,
       image: imageUrl(item.image, `第 ${index + 1} 个颜色图片`),
+      custom: item.custom === true || item.custom === 1,
     };
+  });
+}
+
+/** 定制图案：名称 + 叠加图 + 加价 + 是否「定制」选项 */
+function readPatterns(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw badRequest('图案格式不正确');
+  if (value.length > 20) throw badRequest('图案最多 20 项');
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw badRequest(`第 ${index + 1} 个图案格式不正确`);
+    }
+    const name = str(item.name);
+    if (!name) throw badRequest(`第 ${index + 1} 个图案名称不能为空`);
+    if (name.length > 30) throw badRequest('图案名称不能超过 30 个字符');
+    const image = imageUrl(item.image, `第 ${index + 1} 个图案叠加图`);
+    if (!image) throw badRequest(`第 ${index + 1} 个图案需要上传叠加图`);
+    const delta = Number(item.delta ?? 0);
+    if (!Number.isInteger(delta) || delta < 0 || delta > 10000000) {
+      throw badRequest(`第 ${index + 1} 个图案加价需为 0 到 100000 元之间的金额`);
+    }
+    return { name, image, delta, custom: item.custom === true || item.custom === 1 };
   });
 }
 
@@ -89,6 +112,8 @@ function buildProduct(body, existing) {
         status: existing.status || 'on',
         specs: parseJsonArray(existing.specs_json),
         colors: parseJsonArray(existing.colors_json),
+        isCustom: existing.is_custom === 1,
+        patterns: parseJsonArray(existing.patterns_json),
       }
     : {
         name: '',
@@ -103,6 +128,8 @@ function buildProduct(body, existing) {
         status: 'on',
         specs: [],
         colors: [],
+        isCustom: false,
+        patterns: [],
       };
 
   const name = body.name === undefined ? base.name : str(body.name);
@@ -143,9 +170,13 @@ function buildProduct(body, existing) {
   const coverUrl = body.coverUrl === undefined ? base.coverUrl : imageUrl(body.coverUrl, '商品封面图');
   const specs = body.specs === undefined ? base.specs : readSpecs(body.specs);
   const colors = body.colors === undefined ? base.colors : readColors(body.colors);
+  const isCustom =
+    body.isCustom === undefined ? base.isCustom : body.isCustom === true || body.isCustom === 1;
+  const patterns = body.patterns === undefined ? base.patterns : readPatterns(body.patterns);
 
   if (!specs.length) throw badRequest('请至少添加一个规格');
   if (!colors.length) throw badRequest('请至少添加一个颜色');
+  if (isCustom && !patterns.length) throw badRequest('定制商品请至少添加一个图案选项');
 
   return {
     name,
@@ -160,6 +191,8 @@ function buildProduct(body, existing) {
     coverUrl,
     specs,
     colors,
+    isCustom: isCustom ? 1 : 0,
+    patterns,
   };
 }
 
@@ -178,6 +211,8 @@ function productView(row) {
     status: row.status,
     specs: parseJsonArray(row.specs_json),
     colors: parseJsonArray(row.colors_json),
+    isCustom: row.is_custom === 1,
+    patterns: parseJsonArray(row.patterns_json),
     createdAt: row.created_at,
   };
 }
@@ -193,8 +228,8 @@ router.post('/', adminOnly, (req, res, next) => {
     const info = db
       .prepare(`
         INSERT INTO products (name, category, description, base_price, cover_url, stock,
-          need_production, is_presale, presale_eta, specs_json, colors_json, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+          need_production, is_presale, presale_eta, specs_json, colors_json, is_custom, patterns_json, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
       `)
       .run(
         product.name,
@@ -208,6 +243,8 @@ router.post('/', adminOnly, (req, res, next) => {
         product.presaleEta || null,
         JSON.stringify(product.specs),
         JSON.stringify(product.colors),
+        product.isCustom,
+        JSON.stringify(product.patterns),
         product.status
       );
     const row = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(info.lastInsertRowid));
@@ -235,7 +272,8 @@ router.patch('/:id', adminOnly, (req, res, next) => {
     const product = buildProduct(req.body || {}, existing);
     db.prepare(`
       UPDATE products SET name = ?, category = ?, description = ?, base_price = ?, cover_url = ?,
-        stock = ?, need_production = ?, is_presale = ?, presale_eta = ?, specs_json = ?, colors_json = ?, status = ?
+        stock = ?, need_production = ?, is_presale = ?, presale_eta = ?, specs_json = ?, colors_json = ?,
+        is_custom = ?, patterns_json = ?, status = ?
       WHERE id = ?
     `).run(
       product.name,
@@ -249,6 +287,8 @@ router.patch('/:id', adminOnly, (req, res, next) => {
       product.presaleEta || null,
       JSON.stringify(product.specs),
       JSON.stringify(product.colors),
+      product.isCustom,
+      JSON.stringify(product.patterns),
       product.status,
       id
     );

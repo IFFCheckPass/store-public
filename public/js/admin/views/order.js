@@ -53,7 +53,9 @@ function itemsHtml(order) {
           const quantity = num(item.quantity);
           const unitPrice = num(item.unitPrice);
           const subtotal = Number.isFinite(Number(item.subtotal)) ? Number(item.subtotal) : unitPrice * quantity;
-          const variant = [item.specName, item.colorName].filter(Boolean).join(' · ') || '默认规格';
+          const variant =
+            [item.specName, item.colorName, item.patternName].filter(Boolean).join(' · ') ||
+            '默认规格';
           return `
             <div class="detail-item">
               <div class="detail-item__thumb">
@@ -63,7 +65,11 @@ function itemsHtml(order) {
               </div>
               <div>
                 <div class="detail-item__name">${escapeHtml(text(item.productName, '商品'))}</div>
-                <div class="detail-item__variant">${escapeHtml(variant)}</div>
+                <div class="detail-item__variant">${escapeHtml(variant)}${
+                  item.isCustom
+                    ? ' <b class="variant-tag variant-tag--custom">定制</b>'
+                    : ''
+                }</div>
               </div>
               <div class="detail-item__side">
                 <b>${money(subtotal)}</b>

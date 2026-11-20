@@ -218,7 +218,9 @@ export function orderRowHtml(order, options = {}) {
   const rowClass = order.status === 'deleted' ? ' class="is-deleted"' : '';
   return `
     <tr${rowClass} data-order-no="${escapeHtml(order.orderNo)}">
-      <td><span class="cell-strong cell-mono">${escapeHtml(order.orderNo)}</span></td>
+      <td><span class="cell-strong cell-mono">${escapeHtml(order.orderNo)}</span>${
+        order.hasCustom ? ' <b class="variant-tag variant-tag--custom">定制</b>' : ''
+      }</td>
       <td>${escapeHtml(text(order.customerName))}</td>
       <td>${escapeHtml(text(order.className))}</td>
       <td class="cell-amount">${money(order.totalAmount)}</td>

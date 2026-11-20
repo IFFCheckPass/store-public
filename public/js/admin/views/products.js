@@ -167,7 +167,31 @@ function colorRowHtml(color, index) {
       <img class="variant-thumb" data-color-preview="${index}" src="${escapeHtml(
         safeImage(color.image)
       )}" alt="">
+      <label class="check-line"><input type="checkbox" data-field="color-custom" ${color.custom ? 'checked' : ''}><span>定制项</span></label>
       <button class="btn btn--sm btn--line" type="button" data-remove-color="${index}">删除</button>
+    </div>
+  `;
+}
+
+function patternRowHtml(pattern, index) {
+  return `
+    <div class="variant-row variant-row--color" data-pattern-row data-index="${index}">
+      <input class="input" data-field="pattern-name" type="text" maxlength="30" placeholder="图案名称，如 校徽" value="${escapeHtml(
+        pattern.name || ''
+      )}">
+      <input class="input" data-field="pattern-image" type="text" placeholder="叠加图地址（建议透明 PNG，和颜色图同尺寸）" value="${escapeHtml(
+        pattern.image || ''
+      )}">
+      <button class="btn btn--sm btn--soft" type="button" data-upload-pattern="${index}">上传图</button>
+      <input type="file" accept="image/*" hidden data-pattern-file="${index}">
+      <img class="variant-thumb" data-pattern-preview="${index}" src="${escapeHtml(
+        safeImage(pattern.image)
+      )}" alt="">
+      <input class="input" data-field="pattern-delta" type="number" min="0" step="0.01" placeholder="加价（元）" value="${escapeHtml(
+        (Number(pattern.delta || 0) / 100).toFixed(2)
+      )}" style="max-width:110px">
+      <label class="check-line"><input type="checkbox" data-field="pattern-custom" ${pattern.custom ? 'checked' : ''}><span>定制项</span></label>
+      <button class="btn btn--sm btn--line" type="button" data-remove-pattern="${index}">删除</button>
     </div>
   `;
 }
@@ -182,6 +206,7 @@ function openEditor(product) {
     stock: product ? String(product.stock ?? 0) : '0',
     needProduction: product ? !!product.needProduction : false,
     isPresale: product ? !!product.isPresale : false,
+    isCustom: product ? !!product.isCustom : false,
     presaleEta: product ? product.presaleEta || '' : '',
     status: product ? product.status || 'on' : 'on',
     coverUrl: product ? product.coverUrl || '' : '',
@@ -195,8 +220,18 @@ function openEditor(product) {
             name: item.name,
             hex: item.hex || '#D8E6E0',
             image: item.image || '',
+            custom: !!item.custom,
           }))
-        : [{ name: '经典色', hex: '#12A67A', image: '' }],
+        : [{ name: '经典色', hex: '#12A67A', image: '', custom: false }],
+    patterns:
+      product && Array.isArray(product.patterns)
+        ? product.patterns.map((item) => ({
+            name: item.name || '',
+            image: item.image || '',
+            delta: Number(item.delta) || 0,
+            custom: !!item.custom,
+          }))
+        : [],
   };
 
   const handle = openModal({
@@ -249,6 +284,10 @@ function openEditor(product) {
                 <input type="checkbox" data-field="needProduction" ${draft.needProduction ? 'checked' : ''}>
                 <span>定制</span>
               </label>
+              <label class="check-line">
+                <input type="checkbox" data-field="isCustom" ${draft.isCustom ? 'checked' : ''}>
+                <span>定制商品（颜色+图案叠加界面）</span>
+              </label>
             </div>
             <p class="field-hint">预售：用户端显示“预售”而不显示库存；定制：用户端显示“定制”。</p>
           </div>
@@ -296,6 +335,14 @@ function openEditor(product) {
             </div>
             <div data-colors>${draft.colors.map(colorRowHtml).join('')}</div>
           </div>
+          <div class="field field--full">
+            <div class="field-label-row">
+              <span class="field-label">定制图案（叠加在颜色底图上，建议透明 PNG、与颜色图同尺寸）</span>
+              <button class="btn btn--sm btn--line" type="button" data-add-pattern>添加图案</button>
+            </div>
+            <div data-patterns>${draft.patterns.map(patternRowHtml).join('')}</div>
+            <p class="field-hint">勾选「定制商品」后用户端开启定制界面；「定制项」= 选中后订单会特别标记为定制。</p>
+          </div>
         </div>
         <div data-modal-error class="form-modal__error"></div>
       </div>
@@ -312,6 +359,7 @@ function openEditor(product) {
   const errorBox = body.querySelector('[data-modal-error]');
   const specsBox = body.querySelector('[data-specs]');
   const colorsBox = body.querySelector('[data-colors]');
+  const patternsBox = body.querySelector('[data-patterns]');
   const coverInput = body.querySelector('[data-field="coverUrl"]');
   const coverPreview = body.querySelector('[data-cover-preview]');
   const coverFile = body.querySelector('[data-cover-file]');
@@ -333,6 +381,7 @@ function openEditor(product) {
     draft.status = body.querySelector('[data-field="status"]').value;
     draft.needProduction = body.querySelector('[data-field="needProduction"]').checked;
     draft.isPresale = body.querySelector('[data-field="isPresale"]').checked;
+    draft.isCustom = body.querySelector('[data-field="isCustom"]').checked;
     draft.presaleEta = body.querySelector('[data-field="presaleEta"]').value.trim();
     draft.coverUrl = coverInput.value.trim();
 
@@ -344,12 +393,20 @@ function openEditor(product) {
       name: row.querySelector('[data-field="color-name"]').value,
       hex: row.querySelector('[data-field="color-hex"]').value,
       image: row.querySelector('[data-field="color-image"]').value.trim(),
+      custom: row.querySelector('[data-field="color-custom"]').checked,
+    }));
+    draft.patterns = Array.from(patternsBox.querySelectorAll('[data-pattern-row]')).map((row) => ({
+      name: row.querySelector('[data-field="pattern-name"]').value,
+      image: row.querySelector('[data-field="pattern-image"]').value.trim(),
+      delta: Math.round((Number(row.querySelector('[data-field="pattern-delta"]').value) || 0) * 100),
+      custom: row.querySelector('[data-field="pattern-custom"]').checked,
     }));
   };
 
   const repaintRows = () => {
     specsBox.innerHTML = draft.specs.map(specRowHtml).join('');
     colorsBox.innerHTML = draft.colors.map(colorRowHtml).join('');
+    patternsBox.innerHTML = draft.patterns.map(patternRowHtml).join('');
   };
 
   body.addEventListener('click', async (event) => {
@@ -386,6 +443,28 @@ function openEditor(product) {
       draft.colors.splice(Number(removeColor.dataset.removeColor), 1);
       repaintRows();
       return;
+    }
+    if (event.target.closest('[data-add-pattern]')) {
+      syncFromDom();
+      if (draft.patterns.length >= 20) {
+        showError('图案最多 20 项');
+        return;
+      }
+      draft.patterns.push({ name: '', image: '', delta: 0, custom: false });
+      repaintRows();
+      return;
+    }
+    const removePattern = event.target.closest('[data-remove-pattern]');
+    if (removePattern) {
+      syncFromDom();
+      draft.patterns.splice(Number(removePattern.dataset.removePattern), 1);
+      repaintRows();
+      return;
+    }
+    const uploadPattern = event.target.closest('[data-upload-pattern]');
+    if (uploadPattern) {
+      const input = body.querySelector(`[data-pattern-file="${uploadPattern.dataset.uploadPattern}"]`);
+      if (input) input.click();
     }
     if (event.target.closest('[data-upload-cover]')) {
       coverFile.click();
@@ -434,6 +513,26 @@ function openEditor(product) {
     }
   });
 
+  patternsBox.addEventListener('change', async (event) => {
+    const input = event.target.closest('[data-pattern-file]');
+    if (!input) return;
+    const index = Number(input.dataset.patternFile);
+    const file = input.files && input.files[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readFileDataUrl(file);
+      const data = await api.uploadImage(dataUrl, 'product-pattern');
+      syncFromDom();
+      draft.patterns[index].image = data.url;
+      repaintRows();
+      toast('图案叠加图已上传', 'success');
+    } catch (err) {
+      toast((err && err.message) || '上传失败', 'error');
+    } finally {
+      input.value = '';
+    }
+  });
+
   cancelBtn.addEventListener('click', () => closeModal());
 
   saveBtn.addEventListener('click', async () => {
@@ -448,6 +547,11 @@ function openEditor(product) {
     if (!draft.colors.length) return showError('请至少添加一个颜色');
     if (draft.specs.some((item) => !item.name.trim())) return showError('规格名称不能为空');
     if (draft.colors.some((item) => !item.name.trim())) return showError('颜色名称不能为空');
+    if (draft.isCustom) {
+      if (!draft.patterns.length) return showError('定制商品请至少添加一个图案');
+      if (draft.patterns.some((item) => !item.name.trim())) return showError('图案名称不能为空');
+      if (draft.patterns.some((item) => !item.image.trim())) return showError('每个图案都需要上传叠加图');
+    }
 
     const payload = {
       name,
@@ -460,11 +564,19 @@ function openEditor(product) {
       presaleEta: draft.presaleEta,
       status: draft.status,
       coverUrl: draft.coverUrl,
+      isCustom: draft.isCustom,
       specs: draft.specs.map((item) => ({ name: item.name.trim(), delta: item.delta })),
       colors: draft.colors.map((item) => ({
         name: item.name.trim(),
         hex: item.hex,
         image: item.image,
+        custom: !!item.custom,
+      })),
+      patterns: draft.patterns.map((item) => ({
+        name: item.name.trim(),
+        image: item.image.trim(),
+        delta: item.delta,
+        custom: !!item.custom,
       })),
     };
 

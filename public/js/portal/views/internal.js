@@ -234,7 +234,7 @@ function itemsHtml(task) {
     <div class="pick-items">
       ${items
         .map((item) => {
-          const variant = [item.spec, item.color].filter(Boolean).join(' · ');
+          const variant = [item.spec, item.color, item.pattern].filter(Boolean).join(' · ');
           return `
             <div class="pick-item">
               <img src="${escapeHtml(safeImage(item.imageUrl || task.imageUrl))}" alt="${escapeHtml(
@@ -242,7 +242,9 @@ function itemsHtml(task) {
               )}" loading="lazy">
               <div>
                 <div class="pick-item__name">${escapeHtml(item.name)}</div>
-                <div class="pick-item__variant">${escapeHtml(variant || '默认规格')}</div>
+                <div class="pick-item__variant">${escapeHtml(variant || '默认规格')}${
+                  item.isCustom ? ' <b class="variant-tag variant-tag--custom">定制</b>' : ''
+                }</div>
               </div>
               <div class="pick-item__qty">${item.quantity ? `×${item.quantity}` : '—'}</div>
             </div>`;

@@ -817,6 +817,8 @@ router.post('/payments/:id/review', adminOnly, (req, res, next) => {
             product_name: it.product_name,
             spec_name: it.spec_name,
             color_name: it.color_name,
+            pattern_name: it.pattern_name || '',
+            is_custom: it.is_custom === 1,
             image_url: it.image_url,
             quantity: it.quantity,
             need_production: 1,

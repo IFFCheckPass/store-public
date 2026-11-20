@@ -152,7 +152,8 @@ function itemsPanelHtml(order) {
                     <div>
                       <div class="order-item-name">${escapeHtml(item.productName || '商品')}</div>
                       <div class="order-item-variant">
-                        ${escapeHtml([item.specName, item.colorName].filter(Boolean).join(' · ') || '默认规格')}
+                        ${escapeHtml([item.specName, item.colorName, item.patternName].filter(Boolean).join(' · ') || '默认规格')}
+                        ${item.isCustom ? '<span class="variant-tag variant-tag--custom">定制</span>' : ''}
                       </div>
                     </div>
                     <div class="order-item-side">

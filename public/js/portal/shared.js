@@ -204,6 +204,8 @@ export function internalItems(task) {
       name: text(item.productName, '商品'),
       spec: text(item.specName, ''),
       color: text(item.colorName, ''),
+      pattern: text(item.patternName, ''),
+      isCustom: Boolean(item.isCustom),
       quantity: Number(item.quantity) || 0,
       imageUrl: item.imageUrl || task.imageUrl || ''
     }));
@@ -212,6 +214,7 @@ export function internalItems(task) {
   const rawName = text(task.productName, '商品');
   const spec = text(task.specName, '');
   const color = text(task.colorName, '');
+  const pattern = text(task.patternName, '');
   const total = Number(task.quantity);
   const fallbackQty = Number.isFinite(total) && total > 0 ? total : 0;
   const imageUrl = task.imageUrl || '';
