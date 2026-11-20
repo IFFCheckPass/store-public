@@ -1498,3 +1498,7 @@
   border-radius: 12px;
   background: var(--surface-2);
 }
+
+/* 商品编辑：选项排序按钮 */
+.row-move { display: inline-flex; gap: 2px; flex-shrink: 0; }
+.row-move .btn { padding: 0 7px; min-width: 0; font-size: 13px; line-height: 30px; }

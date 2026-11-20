@@ -136,9 +136,25 @@ function readFileDataUrl(file) {
   });
 }
 
-function specRowHtml(spec, index) {
+function rowMoveHtml(kind, index, total) {
+  const canUp = index > 0;
+  const canDown = index < total - 1;
+  return `
+    <span class="row-move">
+      <button class="btn btn--sm btn--ghost" type="button" data-move-${kind}="${index}" data-move-dir="-1"${
+        canUp ? '' : ' disabled'
+      } aria-label="上移">↑</button>
+      <button class="btn btn--sm btn--ghost" type="button" data-move-${kind}="${index}" data-move-dir="1"${
+        canDown ? '' : ' disabled'
+      } aria-label="下移">↓</button>
+    </span>
+  `;
+}
+
+function specRowHtml(spec, index, total = 0) {
   return `
     <div class="variant-row" data-spec-row data-index="${index}">
+      ${rowMoveHtml('spec', index, total)}
       <input class="input" data-field="spec-name" type="text" maxlength="30" placeholder="规格名称，如 标准装" value="${escapeHtml(
         spec.name || ''
       )}">
@@ -150,9 +166,10 @@ function specRowHtml(spec, index) {
   `;
 }
 
-function colorRowHtml(color, index) {
+function colorRowHtml(color, index, total = 0) {
   return `
     <div class="variant-row variant-row--color" data-color-row data-index="${index}">
+      ${rowMoveHtml('color', index, total)}
       <input class="color-swab" data-field="color-hex" type="color" value="${escapeHtml(
         /^#([0-9a-fA-F]{6})$/.test(color.hex || '') ? color.hex : '#D8E6E0'
       )}" aria-label="颜色">
@@ -173,9 +190,10 @@ function colorRowHtml(color, index) {
   `;
 }
 
-function patternRowHtml(pattern, index) {
+function patternRowHtml(pattern, index, total = 0) {
   return `
     <div class="variant-row variant-row--color" data-pattern-row data-index="${index}">
+      ${rowMoveHtml('pattern', index, total)}
       <input class="input" data-field="pattern-name" type="text" maxlength="30" placeholder="图案名称，如 校徽" value="${escapeHtml(
         pattern.name || ''
       )}">
@@ -326,21 +344,27 @@ function openEditor(product) {
               <span class="field-label">规格</span>
               <button class="btn btn--sm btn--line" type="button" data-add-spec>添加规格</button>
             </div>
-            <div data-specs>${draft.specs.map(specRowHtml).join('')}</div>
+            <div data-specs>${draft.specs
+              .map((item, i) => specRowHtml(item, i, draft.specs.length))
+              .join('')}</div>
           </div>
           <div class="field field--full">
             <div class="field-label-row">
               <span class="field-label">颜色与浏览图</span>
               <button class="btn btn--sm btn--line" type="button" data-add-color>添加颜色</button>
             </div>
-            <div data-colors>${draft.colors.map(colorRowHtml).join('')}</div>
+            <div data-colors>${draft.colors
+              .map((item, i) => colorRowHtml(item, i, draft.colors.length))
+              .join('')}</div>
           </div>
           <div class="field field--full">
             <div class="field-label-row">
               <span class="field-label">定制图案（叠加在颜色底图上，建议透明 PNG、与颜色图同尺寸）</span>
               <button class="btn btn--sm btn--line" type="button" data-add-pattern>添加图案</button>
             </div>
-            <div data-patterns>${draft.patterns.map(patternRowHtml).join('')}</div>
+            <div data-patterns>${draft.patterns
+              .map((item, i) => patternRowHtml(item, i, draft.patterns.length))
+              .join('')}</div>
             <p class="field-hint">勾选「定制商品」后用户端开启定制界面；「定制项」= 选中后订单会特别标记为定制。</p>
           </div>
         </div>
@@ -404,9 +428,15 @@ function openEditor(product) {
   };
 
   const repaintRows = () => {
-    specsBox.innerHTML = draft.specs.map(specRowHtml).join('');
-    colorsBox.innerHTML = draft.colors.map(colorRowHtml).join('');
-    patternsBox.innerHTML = draft.patterns.map(patternRowHtml).join('');
+    specsBox.innerHTML = draft.specs
+      .map((item, i) => specRowHtml(item, i, draft.specs.length))
+      .join('');
+    colorsBox.innerHTML = draft.colors
+      .map((item, i) => colorRowHtml(item, i, draft.colors.length))
+      .join('');
+    patternsBox.innerHTML = draft.patterns
+      .map((item, i) => patternRowHtml(item, i, draft.patterns.length))
+      .join('');
   };
 
   body.addEventListener('click', async (event) => {
@@ -442,6 +472,20 @@ function openEditor(product) {
       syncFromDom();
       draft.colors.splice(Number(removeColor.dataset.removeColor), 1);
       repaintRows();
+      return;
+    }
+    const moveBtn = event.target.closest('[data-move-spec], [data-move-color], [data-move-pattern]');
+    if (moveBtn) {
+      syncFromDom();
+      const kind = moveBtn.dataset.moveSpec !== undefined ? 'spec' : moveBtn.dataset.moveColor !== undefined ? 'color' : 'pattern';
+      const index = Number(kind === 'spec' ? moveBtn.dataset.moveSpec : kind === 'color' ? moveBtn.dataset.moveColor : moveBtn.dataset.movePattern);
+      const dir = Number(moveBtn.dataset.moveDir);
+      const list = kind === 'spec' ? draft.specs : kind === 'color' ? draft.colors : draft.patterns;
+      const target = index + dir;
+      if (Number.isInteger(index) && Number.isInteger(dir) && target >= 0 && target < list.length) {
+        [list[index], list[target]] = [list[target], list[index]];
+        repaintRows();
+      }
       return;
     }
     if (event.target.closest('[data-add-pattern]')) {
