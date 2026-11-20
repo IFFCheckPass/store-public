@@ -412,8 +412,8 @@ function openEditor(product) {
   body.addEventListener('click', async (event) => {
     if (event.target.closest('[data-add-spec]')) {
       syncFromDom();
-      if (draft.specs.length >= 10) {
-        showError('规格最多 10 项');
+      if (draft.specs.length >= 20) {
+        showError('规格最多 20 项');
         return;
       }
       draft.specs.push({ name: '', delta: 0 });
@@ -550,7 +550,6 @@ function openEditor(product) {
     if (draft.isCustom) {
       if (!draft.patterns.length) return showError('定制商品请至少添加一个图案');
       if (draft.patterns.some((item) => !item.name.trim())) return showError('图案名称不能为空');
-      if (draft.patterns.some((item) => !item.image.trim())) return showError('每个图案都需要上传叠加图');
     }
 
     const payload = {

@@ -32,7 +32,7 @@ function normalizePatterns(product) {
   const patterns = Array.isArray(product.patterns) ? product.patterns : [];
   return patterns.map((pattern, index) => ({
     name: String(pattern.name || `图案 ${index + 1}`),
-    image: safeImage(pattern.image || ''),
+    image: pattern.image ? safeImage(pattern.image) : '',
     delta: Number(pattern.delta) || 0,
     custom: Boolean(pattern.custom)
   }));
@@ -156,7 +156,9 @@ export async function render(root, params = {}) {
               isCustom
                 ? `<div class="custom-preview">
                      <img id="main-image" src="${escapeHtml(mainImage)}" alt="${escapeHtml(product.name || '商品图片')}">
-                     <img id="pattern-layer" class="custom-layer" src="${escapeHtml(patterns[0].image)}" alt="" aria-hidden="true">
+                     <img id="pattern-layer" class="custom-layer" src="${escapeHtml(
+                       patterns[0].image
+                     )}" alt="" aria-hidden="true"${patterns[0].image ? '' : ' hidden'}>
                    </div>`
                 : `<img id="main-image" src="${escapeHtml(mainImage)}" alt="${escapeHtml(product.name || '商品图片')}">`
             }
@@ -247,7 +249,11 @@ export async function render(root, params = {}) {
                        .map(
                          (pattern, index) => `
                            <button class="pattern-option${index === 0 ? ' is-active' : ''}" type="button" data-pattern-index="${index}" aria-label="选择图案 ${escapeHtml(pattern.name)}">
-                             <img src="${escapeHtml(pattern.image)}" alt="">
+                             ${
+                               pattern.image
+                                 ? `<img src="${escapeHtml(pattern.image)}" alt="">`
+                                 : '<span class="pattern-option__empty">未上传</span>'
+                             }
                              <span class="pattern-option__name">${escapeHtml(pattern.name)}${pattern.custom ? ' · 定制' : ''}</span>
                              <small>${deltaText(pattern.delta)}</small>
                            </button>`
@@ -392,7 +398,14 @@ export async function render(root, params = {}) {
     const applyPattern = (index) => {
       patternIndex = Math.max(0, Math.min(patterns.length - 1, index));
       const pattern = currentPattern();
-      if (patternLayer) patternLayer.src = pattern.image;
+      if (patternLayer) {
+        if (pattern.image) {
+          patternLayer.src = pattern.image;
+          patternLayer.hidden = false;
+        } else {
+          patternLayer.hidden = true;
+        }
+      }
       if (patternValueEl) {
         patternValueEl.textContent = `${pattern.name} · ${deltaText(pattern.delta)}`;
       }

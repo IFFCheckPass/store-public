@@ -29,7 +29,7 @@ function imageUrl(value, label) {
 function readSpecs(value) {
   if (!Array.isArray(value)) throw badRequest('规格格式不正确');
   if (value.length < 1) throw badRequest('请至少添加一个规格');
-  if (value.length > 10) throw badRequest('规格最多 10 项');
+  if (value.length > 20) throw badRequest('规格最多 20 项');
   return value.map((item, index) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       throw badRequest(`第 ${index + 1} 个规格格式不正确`);
@@ -79,8 +79,8 @@ function readPatterns(value) {
     const name = str(item.name);
     if (!name) throw badRequest(`第 ${index + 1} 个图案名称不能为空`);
     if (name.length > 30) throw badRequest('图案名称不能超过 30 个字符');
+    // 叠加图暂时允许留空（图案可以先建好，图片后补）
     const image = imageUrl(item.image, `第 ${index + 1} 个图案叠加图`);
-    if (!image) throw badRequest(`第 ${index + 1} 个图案需要上传叠加图`);
     const delta = Number(item.delta ?? 0);
     if (!Number.isInteger(delta) || delta < 0 || delta > 10000000) {
       throw badRequest(`第 ${index + 1} 个图案加价需为 0 到 100000 元之间的金额`);

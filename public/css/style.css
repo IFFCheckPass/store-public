@@ -2475,6 +2475,16 @@ body.is-locked { overflow: hidden; }
 }
 .pattern-option__name { font-size: 12px; font-weight: 700; color: var(--ink); }
 .pattern-option small { font-size: 10.5px; color: var(--muted); }
+.pattern-option__empty {
+  display: grid;
+  place-items: center;
+  width: 70px;
+  height: 70px;
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
 .pattern-option.is-active { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(23, 184, 144, .14); }
 .custom-hint {
   display: flex;
