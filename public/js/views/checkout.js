@@ -9,6 +9,13 @@ import {
   scrollToElement
 } from '../ui.js';
 import { openLoginModal } from './login.js';
+import {
+  GRADES,
+  CLASS_NO_MIN,
+  CLASS_NO_MAX,
+  buildClassName,
+  parseClassName
+} from '../class-name.js';
 
 const TIME_SLOTS = [
   { value: 'day_break', label: '白天场' },
@@ -49,6 +56,7 @@ function summaryItemsHtml(items) {
 }
 
 function formHtml(user) {
+  const parsedClass = parseClassName(user.className);
   return `
     <div class="checkout-layout">
       <div class="checkout-main">
@@ -60,9 +68,19 @@ function formHtml(user) {
 
           <div class="form-grid">
             <div class="field">
-              <label class="field-label" for="checkout-class">收货班级 <span class="req">*</span></label>
-              <input class="input" id="checkout-class" name="className" type="text" value="${escapeHtml(user.className || '')}" placeholder="如 高二(3)班" maxlength="30">
+              <label class="field-label" for="checkout-grade">收货年段 <span class="req">*</span></label>
+              <select class="select" id="checkout-grade" name="grade">
+                <option value="">请选择</option>
+                ${GRADES.map(
+                  (grade) =>
+                    `<option value="${grade}"${parsedClass.grade === grade ? ' selected' : ''}>${grade}</option>`
+                ).join('')}
+              </select>
               <span class="field-hint">默认使用登录班级，可改为其他班级</span>
+            </div>
+            <div class="field">
+              <label class="field-label" for="checkout-class-no">收货班级 <span class="req">*</span></label>
+              <input class="input" id="checkout-class-no" name="classNo" type="number" min="${CLASS_NO_MIN}" max="${CLASS_NO_MAX}" step="1" inputmode="numeric" value="${escapeHtml(parsedClass.classNo)}" placeholder="1-17">
             </div>
             <div class="field">
               <label class="field-label">下单人</label>
@@ -309,7 +327,8 @@ export async function render(root, params = {}, query = {}) {
   `;
 
   const form = root;
-  const classInput = root.querySelector('[name="className"]');
+  const gradeSelect = root.querySelector('[name="grade"]');
+  const classNoInput = root.querySelector('[name="classNo"]');
   const timeSelect = root.querySelector('[name="timeSlot"]');
   const contactInput = root.querySelector('[name="contactValue"]');
   const contactHint = root.querySelector('[data-contact-hint]');
@@ -485,7 +504,9 @@ export async function render(root, params = {}, query = {}) {
     submitBtn.addEventListener('click', async () => {
       clearErrors(form);
 
-      const className = classInput ? classInput.value.trim() : '';
+      const grade = gradeSelect ? gradeSelect.value : '';
+      const classNo = classNoInput ? classNoInput.value.trim() : '';
+      const className = buildClassName(grade, classNo);
       const deliveryMethod = 'class';
       const timeSlot = timeSelect ? timeSelect.value : '';
       const contactType = root.querySelector('[name="contactType"]:checked').value;
@@ -494,9 +515,12 @@ export async function render(root, params = {}, query = {}) {
       const remark = remarkInput ? remarkInput.value.trim() : '';
 
       let firstInvalid = null;
-      if (!className) {
-        markInvalid(classInput, '请填写收货班级');
-        firstInvalid = firstInvalid || classInput;
+      if (!grade) {
+        markInvalid(gradeSelect, '请选择收货年段');
+        firstInvalid = firstInvalid || gradeSelect;
+      } else if (!className) {
+        markInvalid(classNoInput, '班级号需在 1-17 之间');
+        firstInvalid = firstInvalid || classNoInput;
       }
       if (!timeSlot) {
         markInvalid(timeSelect, '请选择建议时间段');

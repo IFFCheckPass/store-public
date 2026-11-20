@@ -1,6 +1,7 @@
 import { api, getCachedUser, setCachedUser } from '../api.js';
 import { escapeHtml, toast, openModal, setBusy, scrollToElement } from '../ui.js';
 import { currentSettings } from '../site-settings.js';
+import { GRADES, CLASS_NO_MIN, CLASS_NO_MAX, buildClassName } from '../class-name.js';
 
 function fieldsHtml(prefix) {
   return `
@@ -10,8 +11,15 @@ function fieldsHtml(prefix) {
         <input class="input" id="${prefix}-name" name="name" type="text" autocomplete="name" placeholder="请输入你的姓名" maxlength="20">
       </div>
       <div class="field">
-        <label class="field-label" for="${prefix}-class">班级 <span class="req">*</span></label>
-        <input class="input" id="${prefix}-class" name="className" type="text" placeholder="如 高二(3)班" maxlength="30">
+        <label class="field-label" for="${prefix}-grade">年段 <span class="req">*</span></label>
+        <select class="select" id="${prefix}-grade" name="grade">
+          <option value="">请选择</option>
+          ${GRADES.map((grade) => `<option value="${grade}">${grade}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label class="field-label" for="${prefix}-class-no">班级 <span class="req">*</span></label>
+        <input class="input" id="${prefix}-class-no" name="classNo" type="number" min="${CLASS_NO_MIN}" max="${CLASS_NO_MAX}" step="1" inputmode="numeric" placeholder="1-17">
       </div>
       <div class="field">
         <label class="field-label" for="${prefix}-seat">座号 <span class="req">*</span></label>
@@ -95,13 +103,16 @@ function bindForm(form, { onSuccess, onCancel }) {
     clearErrors(form);
 
     const nameInput = form.querySelector('[name="name"]');
-    const classInput = form.querySelector('[name="className"]');
+    const gradeInput = form.querySelector('[name="grade"]');
+    const classNoInput = form.querySelector('[name="classNo"]');
     const seatInput = form.querySelector('[name="seatNo"]');
     const studentInput = form.querySelector('[name="studentId"]');
     const submit = form.querySelector('[data-submit]');
 
     const name = (nameInput && nameInput.value.trim()) || '';
-    const className = (classInput && classInput.value.trim()) || '';
+    const grade = (gradeInput && gradeInput.value) || '';
+    const classNo = (classNoInput && classNoInput.value.trim()) || '';
+    const className = buildClassName(grade, classNo);
     const seatNo = (seatInput && seatInput.value.trim()) || '';
     const studentId = (studentInput && studentInput.value.trim()) || '';
 
@@ -110,9 +121,12 @@ function bindForm(form, { onSuccess, onCancel }) {
       markInvalid(nameInput, '请填写姓名');
       firstInvalid = firstInvalid || nameInput;
     }
-    if (!className) {
-      markInvalid(classInput, '请填写班级');
-      firstInvalid = firstInvalid || classInput;
+    if (!grade) {
+      markInvalid(gradeInput, '请选择年段');
+      firstInvalid = firstInvalid || gradeInput;
+    } else if (!className) {
+      markInvalid(classNoInput, '班级号需在 1-17 之间');
+      firstInvalid = firstInvalid || classNoInput;
     }
     if (!seatNo) {
       markInvalid(seatInput, '请填写座号');

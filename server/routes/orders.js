@@ -10,6 +10,7 @@ import { generateOrderNo } from '../lib/ids.js';
 import { computeGiftDiscount, loadUsableGiftCode, scopeLabel } from '../lib/gift-codes.js';
 import {
   ApiError,
+  assertClassName,
   assertContact,
   assertDeliveryMethod,
   assertPaymentMethod,
@@ -304,7 +305,9 @@ router.post('/', requireUser, (req, res, next) => {
     const remark = str(body.remark);
     if (remark.length > 500) throw badRequest('备注不能超过 500 字');
 
-    const deliveryDetail = str(body.deliveryDetail) || (deliveryMethod === 'class' ? user.class_name : '');
+    const className = assertClassName(body.className || user.class_name);
+    const deliveryDetail =
+      str(body.deliveryDetail) || (deliveryMethod === 'class' ? `${className} ${user.seat_no} 座` : '');
 
     const giftCodeInput = str(body.giftCode).toUpperCase();
     if (paymentMethod === 'gift' && !giftCodeInput) throw badRequest('请填写赠货码');
@@ -405,7 +408,7 @@ router.post('/', requireUser, (req, res, next) => {
             candidate,
             user.id,
             user.name,
-            user.class_name,
+            className,
             user.seat_no,
             user.student_id || null,
             deliveryMethod,
@@ -483,7 +486,7 @@ router.post('/', requireUser, (req, res, next) => {
         taskSummary,
         itemRows[0] ? itemRows[0].image_url : null,
         totalPieces,
-        user.class_name,
+        className,
         timeSlot,
         contactType,
         contactValue,

@@ -16,6 +16,7 @@ import {
 import { audit } from '../lib/audit.js';
 import {
   PLACEHOLDER_STUDENT_ID,
+  assertClassName,
   assertPassword,
   assertStudentId,
   isNonEmpty,
@@ -131,10 +132,9 @@ router.post('/staff/change-password', requireStaff(), (req, res, next) => {
 router.post('/user/login', (req, res, next) => {
   try {
     const name = str(req.body?.name);
-    const className = str(req.body?.className);
+    const className = assertClassName(req.body?.className);
     const seatNo = str(req.body?.seatNo);
     if (!name) return res.status(400).json({ error: '请填写姓名' });
-    if (!className) return res.status(400).json({ error: '请填写班级' });
     if (!seatNo) return res.status(400).json({ error: '请填写座号' });
 
     const hasStudentId = req.body?.studentId !== undefined && str(req.body?.studentId) !== '';

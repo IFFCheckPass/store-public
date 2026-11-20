@@ -80,6 +80,22 @@ export function assertStudentId(value, { required = true } = {}) {
   return v;
 }
 
+/** 班级统一格式：高二(3)班，年段为 高一/高二/高三，班级号 1-17 */
+export function assertClassName(value) {
+  const normalized = str(value)
+    .replace(/[（]/g, '(')
+    .replace(/[）]/g, ')')
+    .replace(/\s+/g, '')
+    .replace(/班$/, '');
+  const match = normalized.match(/^(高一|高二|高三)\(?(\d{1,2})\)?$/);
+  if (!match) throw badRequest('请选择年段并填写 1-17 的班级号');
+  const classNo = Number(match[2]);
+  if (!Number.isInteger(classNo) || classNo < 1 || classNo > 17) {
+    throw badRequest('班级号需在 1-17 之间');
+  }
+  return `${match[1]}(${classNo})班`;
+}
+
 export function assertPassword(value) {
   const v = typeof value === 'string' ? value : '';
   if (v.length < 6) throw badRequest('密码长度不能少于 6 位');

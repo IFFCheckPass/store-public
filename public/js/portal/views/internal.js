@@ -2,6 +2,7 @@
  * 内部打包配送工作台 #/internal
  */
 import { api } from '../api.js';
+import { classSortValue } from '/js/class-name.js';
 import { escapeHtml, emptyState, safeImage, toast } from '/js/ui.js';
 import {
   CONTACT_LABELS,
@@ -80,8 +81,9 @@ function skeletonStats() {
 }
 
 function uniqueClasses() {
-  return [...new Set(state.tasks.map((task) => text(task.className, '')).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, 'zh-CN')
+  // 按「年段 -> 班号」排序，而不是字符串比较（否则“高二”会排到“高一”前面）
+  return [...new Set(state.tasks.map((task) => text(task.className, '')).filter(Boolean))].sort(
+    (a, b) => classSortValue(a) - classSortValue(b)
   );
 }
 
@@ -271,8 +273,9 @@ function personGroups(tasks) {
     }
     groups.get(key).tasks.push(task);
   });
+  // 分类规律：年段（高一→高二→高三）→ 班级号 → 用户姓名 → 座号
   return Array.from(groups.values()).sort((a, b) => {
-    const classCompare = text(a.className, '').localeCompare(text(b.className, ''), 'zh-CN');
+    const classCompare = classSortValue(a.className) - classSortValue(b.className);
     if (classCompare !== 0) return classCompare;
     const nameCompare = text(a.customerName, '').localeCompare(text(b.customerName, ''), 'zh-CN');
     if (nameCompare !== 0) return nameCompare;
