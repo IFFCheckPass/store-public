@@ -13,6 +13,9 @@ import {
   text
 } from '../shared.js';
 
+/** 未预置学号的占位值，与后端 server/lib/validate.js 保持一致 */
+const PLACEHOLDER_STUDENT_ID = '00000000';
+
 const bound = new WeakSet();
 let currentRoot = null;
 let currentCtx = null;

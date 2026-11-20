@@ -44,7 +44,18 @@ app.use('/api/admin/uploads', uploadsRouter);
 app.use('/api/admin', adminRouter);
 
 app.use('/uploads', express.static(UPLOADS_DIR));
-app.use(express.static(PUBLIC_DIR));
+// 前端是免构建的原生 ESM，更新后必须立即生效：让浏览器每次回源验证，别吃 4 小时缓存
+app.use(
+  express.static(PUBLIC_DIR, {
+    etag: true,
+    lastModified: true,
+    setHeaders(res, filePath) {
+      if (/\.(?:js|css|html)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  })
+);
 
 app.get('/portal', (req, res, next) => {
   const file = path.join(PUBLIC_DIR, 'portal.html');
