@@ -14,7 +14,13 @@ import {
   verifyPassword,
 } from '../auth.js';
 import { audit } from '../lib/audit.js';
-import { assertPassword, assertStudentId, isNonEmpty, str } from '../lib/validate.js';
+import {
+  PLACEHOLDER_STUDENT_ID,
+  assertPassword,
+  assertStudentId,
+  isNonEmpty,
+  str,
+} from '../lib/validate.js';
 
 const router = express.Router();
 
@@ -80,6 +86,11 @@ router.patch('/staff/profile', requireStaff(), (req, res, next) => {
       return res.status(400).json({ error: '当前密码不正确' });
     }
     const studentId = assertStudentId(req.body?.studentId);
+    if (studentId === PLACEHOLDER_STUDENT_ID) {
+      return res
+        .status(400)
+        .json({ error: '请填写真实学号，00000000 是未预置学号的占位值' });
+    }
     db.prepare(
       "UPDATE staff SET student_id = ?, updated_at = datetime('now','localtime') WHERE id = ?"
     ).run(studentId, staff.id);

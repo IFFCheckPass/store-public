@@ -104,7 +104,11 @@ function resultHtml(staffList, viewer) {
                       self ? '<span class="cell-sub">当前账号</span>' : ''
                     }</td>
                     <td>${escapeHtml(text(item.displayName))}</td>
-                    <td class="cell-mono cell-muted">${escapeHtml(text(item.studentId))}</td>
+                    <td class="cell-mono cell-muted">${escapeHtml(text(item.studentId))}${
+                      item.studentId === PLACEHOLDER_STUDENT_ID
+                        ? '<span class="badge badge--soft" style="margin-left:6px">未预置</span>'
+                        : ''
+                    }</td>
                     <td>${roleBadge(item.role)}</td>
                     <td>${statusBadge(item.status)}</td>
                     <td class="cell-muted cell-nowrap">${escapeHtml(text(item.createdAt))}</td>
@@ -171,24 +175,26 @@ function openStaffForm(mode, record) {
     title: isEdit ? '编辑账号' : '新建账号',
     eyebrow: 'Staff Account',
     sub: isEdit
-      ? `账号 ${record.username}，用户名与学号不可修改。`
-      : '创建后可使用用户名、学号与密码登录对应门户。',
+      ? `账号 ${record.username}，超级管理员可修改用户名；学号仅本人可自行修改。`
+      : '创建后可使用用户名、学号与密码登录对应门户；学号留空则预置 00000000，首次登录会引导本人补全。',
     body: `
       <div class="form-modal">
         <div class="form-grid">
           ${fieldHtml(
             'staff-username',
             '用户名',
-            `<input class="input" id="staff-username" data-field="username" type="text" value="${escapeHtml(
+            `<input class="input" id="staff-username" data-field="username" type="text" maxlength="30" value="${escapeHtml(
               isEdit ? record.username : ''
-            )}" placeholder="3-30 位字母、数字或下划线" ${isEdit ? 'disabled' : ''}>`
+            )}" placeholder="2-30 位字母、数字或下划线">`,
+            isEdit ? '修改后请告知本人，登录用户名会立即变更。' : ''
           )}
           ${fieldHtml(
             'staff-student-id',
             '学号',
             `<input class="input" id="staff-student-id" data-field="studentId" type="text" value="${escapeHtml(
               isEdit ? record.studentId : ''
-            )}" placeholder="6-20 位字母或数字" ${isEdit ? 'disabled' : ''}>`
+            )}" placeholder="6-20 位字母或数字，留空则为 00000000" ${isEdit ? 'disabled' : ''}>`,
+            isEdit ? '学号仅账号本人可自行修改。' : ''
           )}
           ${fieldHtml(
             'staff-name',
@@ -247,13 +253,14 @@ function openStaffForm(mode, record) {
   };
 
   const validate = () => {
+    const username = read('username');
+    if (!/^[A-Za-z0-9_]{2,30}$/.test(username)) {
+      return '用户名需为 2-30 位字母、数字或下划线';
+    }
     if (!isEdit) {
-      const username = read('username');
-      if (!/^[A-Za-z0-9_]{3,30}$/.test(username)) {
-        return '用户名需为 3-30 位字母、数字或下划线';
-      }
-      if (!/^[A-Za-z0-9]{6,20}$/.test(read('studentId'))) {
-        return '学号需为 6-20 位字母或数字';
+      const studentId = read('studentId');
+      if (studentId && !/^[A-Za-z0-9]{6,20}$/.test(studentId)) {
+        return '学号需为 6-20 位字母或数字，或留空';
       }
       const password = body.querySelector('[data-field="password"]').value;
       if (password.length < 6) return '密码长度不能少于 6 位';
@@ -276,6 +283,7 @@ function openStaffForm(mode, record) {
       try {
         if (isEdit) {
           await api.updateStaff(record.id, {
+            username: read('username'),
             displayName: read('displayName'),
             role: read('role'),
             status: read('status')

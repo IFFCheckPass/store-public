@@ -6,6 +6,7 @@ import { escapeHtml, initials, installImageFallback, toast, closeModal } from '/
 import { applyTheme, brandName, currentSettings, loadSiteSettings } from '/js/site-settings.js';
 import { brandMark, roleBadge, roleLabel } from './shared.js';
 import { render as renderLogin } from './views/login.js';
+import { maybePromptStudentId } from '/js/staff-profile-prompt.js';
 import * as dashboardView from './views/dashboard.js';
 import * as ordersView from './views/orders.js';
 import * as orderView from './views/order.js';
@@ -250,6 +251,7 @@ function showLogin(message = '') {
       }
       renderShell();
       route();
+      maybePromptStudentId({ staff, api });
     }
   });
 }
@@ -334,6 +336,7 @@ async function bootstrap() {
       }
       renderShell();
       route();
+      maybePromptStudentId({ staff: session.staff, api });
       return;
     }
   } catch (err) {

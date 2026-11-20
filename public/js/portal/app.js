@@ -14,6 +14,7 @@ import {
 import { applyTheme, brandName, currentSettings, loadSiteSettings } from '/js/site-settings.js';
 import { brandMark, roleBadge, roleLabel } from './shared.js';
 import { render as renderLogin } from './views/login.js';
+import { maybePromptStudentId } from '/js/staff-profile-prompt.js';
 import * as externalView from './views/external.js';
 import * as internalView from './views/internal.js';
 
@@ -301,6 +302,7 @@ function showLogin(message = '') {
       }
       renderShell();
       route();
+      maybePromptStudentId({ staff, api });
     }
   });
 }
@@ -347,6 +349,7 @@ async function bootstrap() {
       }
       renderShell();
       route();
+      maybePromptStudentId({ staff: session.staff, api });
       return;
     }
   } catch (err) {

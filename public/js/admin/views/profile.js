@@ -12,7 +12,7 @@ function pageHtml(staff) {
       <div class="admin-page-head__text">
         <span class="admin-eyebrow">Account Security</span>
         <h1>个人设置</h1>
-        <p>自行维护登录学号与密码。修改学号或密码都需要验证当前密码。</p>
+        <p>用户名与角色由超级管理员维护；登录学号仅本人可修改，修改学号或密码都需要验证当前密码。</p>
       </div>
     </div>
 
@@ -22,6 +22,11 @@ function pageHtml(staff) {
           <h2>账号信息</h2>
           <p>用户名与角色由超级管理员维护，登录学号可自行修改。</p>
         </div>
+        ${
+          String(staff.studentId || '') === '00000000'
+            ? '<div class="admin-alert admin-alert--error" style="margin-bottom:14px"><span>当前账号还没有预置学号（00000000），请填写真实学号并保存。</span></div>'
+            : ''
+        }
         <div class="form-grid">
           <div class="field">
             <label class="field-label">用户名</label>
@@ -40,6 +45,7 @@ function pageHtml(staff) {
             <input class="input" id="profile-student-id" type="text" maxlength="20" value="${escapeHtml(
               staff.studentId || ''
             )}" placeholder="6-20 位字母或数字">
+            <p class="field-hint">学号只能由本人修改，管理员无法代为设置。</p>
           </div>
           <div class="field field--full">
             <label class="field-label" for="profile-current-password">当前密码<span class="req">*</span></label>
@@ -103,6 +109,10 @@ export function render(root, ctx) {
   saveProfileBtn.addEventListener('click', async () => {
     const studentId = studentInput.value.trim();
     const password = currentPassword.value;
+    if (studentId === '00000000') {
+      showError(profileError, '请填写真实学号，00000000 只是未预置学号的占位值');
+      return;
+    }
     if (!/^[A-Za-z0-9]{6,20}$/.test(studentId)) {
       showError(profileError, '学号需为 6-20 位字母或数字');
       return;

@@ -63,6 +63,13 @@ export function assertContact(contactType, contactValue) {
   return value;
 }
 
+/** 未预置学号的占位值：账号首次登录后需引导本人补全真实学号 */
+export const PLACEHOLDER_STUDENT_ID = '00000000';
+
+export function isPlaceholderStudentId(value) {
+  return str(value) === PLACEHOLDER_STUDENT_ID;
+}
+
 export function assertStudentId(value, { required = true } = {}) {
   const v = str(value);
   if (!v) {

@@ -12,8 +12,10 @@ import {
   assertPassword,
   assertStudentId,
   badRequest,
+  PLACEHOLDER_STUDENT_ID,
   boolParam,
   isPositiveInt,
+  isPlaceholderStudentId,
   paginationLimit,
   str,
   toInt,
@@ -277,10 +279,10 @@ function accountEntry(raw, index) {
   const label = `第 ${index + 1} 个账号`;
   if (!raw || typeof raw !== 'object') throw badRequest(`${label}格式不正确`);
   const username = str(raw.username);
-  if (!/^[A-Za-z0-9_.-]{3,30}$/.test(username)) {
-    throw badRequest(`${label}用户名需为 3-30 位字母、数字、下划线、点或短横线`);
+  if (!/^[A-Za-z0-9_.-]{2,30}$/.test(username)) {
+    throw badRequest(`${label}用户名需为 2-30 位字母、数字、下划线、点或短横线`);
   }
-  const studentId = assertStudentId(raw.studentId);
+  const studentId = assertStudentId(raw.studentId, { required: false }) || PLACEHOLDER_STUDENT_ID;
   const displayName = str(raw.displayName);
   if (!displayName || displayName.length > 40) {
     throw badRequest(`${label}姓名需为 1-40 个字符`);
@@ -546,8 +548,8 @@ router.post('/staff', superOnly, (req, res, next) => {
     const role = str(req.body?.role);
     const status = req.body?.status === undefined ? 'active' : str(req.body?.status);
 
-    if (!/^[A-Za-z0-9_]{3,30}$/.test(username)) {
-      return res.status(400).json({ error: '用户名需为 3-30 位字母、数字或下划线' });
+    if (!/^[A-Za-z0-9_]{2,30}$/.test(username)) {
+      return res.status(400).json({ error: '用户名需为 2-30 位字母、数字或下划线' });
     }
     if (!displayName || displayName.length > 30) {
       return res.status(400).json({ error: '请填写 1-30 字的显示名称' });
@@ -558,7 +560,7 @@ router.post('/staff', superOnly, (req, res, next) => {
     if (!['active', 'disabled'].includes(status)) {
       return res.status(400).json({ error: '账号状态不正确' });
     }
-    const studentId = assertStudentId(req.body?.studentId);
+    const studentId = assertStudentId(req.body?.studentId, { required: false }) || PLACEHOLDER_STUDENT_ID;
     const password = assertPassword(req.body?.password);
 
     const exists = db.prepare('SELECT id FROM staff WHERE username = ?').get(username);
@@ -587,6 +589,19 @@ router.patch('/staff/:id', superOnly, (req, res, next) => {
 
     const updates = [];
     const params = [];
+
+    if (req.body?.username !== undefined) {
+      const username = str(req.body.username);
+      if (!/^[A-Za-z0-9_]{2,30}$/.test(username)) {
+        return res.status(400).json({ error: '用户名需为 2-30 位字母、数字或下划线' });
+      }
+      if (username !== staff.username) {
+        const dup = db.prepare('SELECT id FROM staff WHERE username = ? AND id <> ?').get(username, id);
+        if (dup) return res.status(400).json({ error: '用户名已存在' });
+        updates.push('username = ?');
+        params.push(username);
+      }
+    }
 
     if (req.body?.displayName !== undefined) {
       const displayName = str(req.body.displayName);
@@ -621,7 +636,9 @@ router.patch('/staff/:id', superOnly, (req, res, next) => {
     db.prepare(`UPDATE staff SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
     const updated = db.prepare('SELECT * FROM staff WHERE id = ?').get(id);
-    audit('staff', req.staff.sub, req.staff.name, 'staff.update', `更新账号 ${staff.username}`);
+    const nameNote =
+      updated.username !== staff.username ? `（用户名 ${staff.username} → ${updated.username}）` : '';
+    audit('staff', req.staff.sub, req.staff.name, 'staff.update', `更新账号 ${staff.username}${nameNote}`);
     return res.json({ staff: staffRowView(updated) });
   } catch (err) {
     return next(err);
