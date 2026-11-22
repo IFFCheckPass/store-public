@@ -1,8 +1,35 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { SignJWT, jwtVerify } from 'jose';
 
-const DEV_SECRET = 'campus-sales-dev-secret-please-change-in-production';
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || DEV_SECRET);
+/**
+ * 会话签名密钥：
+ * 1) 优先用 JWT_SECRET 环境变量；
+ * 2) 没配就生成随机密钥并持久化到数据目录 .jwt-secret（600，不进 git，重启不变）；
+ * 3) 绝不再回退到代码里写死的默认值（那等于公开密钥，任何人能伪造管理员会话）。
+ */
+function resolveJwtSecret() {
+  const fromEnv = process.env.JWT_SECRET;
+  if (fromEnv && fromEnv.length >= 32) return fromEnv;
+
+  const dataDir = process.env.DATA_DIR || path.join(os.tmpdir(), 'campus-sales-platform-v2');
+  const secretFile = path.join(dataDir, '.jwt-secret');
+  try {
+    const existing = fs.readFileSync(secretFile, 'utf8').trim();
+    if (existing.length >= 32) return existing;
+  } catch {
+    /* 首次启动 */
+  }
+  const generated = crypto.randomBytes(48).toString('base64url');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(secretFile, generated, { mode: 0o600 });
+  console.warn(`[auth] 未设置 JWT_SECRET，已生成随机会话密钥并保存到 ${secretFile}`);
+  return generated;
+}
+
+const secret = new TextEncoder().encode(resolveJwtSecret());
 const TOKEN_TTL = '12h';
 const COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 

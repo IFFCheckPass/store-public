@@ -24,9 +24,13 @@ const UPLOADS_DIR =
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const app = express();
-// 备份文件包含图片的 base64 内容，单独放宽该接口的请求体限制
-app.use('/api/admin/backup/import', express.json({ limit: '200mb' }));
-app.use(express.json({ limit: '10mb' }));
+// 普通接口 body 上限 10MB；备份导入的体积校验放到该路由的鉴权之后（见 admin.js），
+// 避免未认证请求先把 200MB 读进内存造成 OOM。
+const jsonParser = express.json({ limit: '10mb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/admin/backup/import') return next();
+  return jsonParser(req, res, next);
+});
 app.use(cookieParser());
 
 app.get('/api/health', (req, res) => {

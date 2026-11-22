@@ -113,10 +113,15 @@ export async function openDatabase(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   let raw;
-  try {
-    raw = new SQL.Database(new Uint8Array(fs.readFileSync(filePath)));
-  } catch {
+  if (!fs.existsSync(filePath)) {
     raw = new SQL.Database();
+  } else {
+    // 文件存在却读不出来 / 是空文件时，绝不能再静默建空库（否则会用空库覆盖原数据）
+    const size = fs.statSync(filePath).size;
+    if (size === 0) {
+      throw new Error(`数据库文件为空：${filePath}（拒绝启动，避免用空库覆盖历史数据，请从备份恢复）`);
+    }
+    raw = new SQL.Database(new Uint8Array(fs.readFileSync(filePath)));
   }
 
   return new Database(filePath, raw);

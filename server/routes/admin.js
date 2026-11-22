@@ -412,7 +412,7 @@ router.get('/backup/export', superOnly, (req, res) => {
   return res.send(JSON.stringify(payload, null, 2));
 });
 
-router.post('/backup/import', superOnly, (req, res, next) => {
+router.post('/backup/import', superOnly, express.json({ limit: '50mb' }), (req, res, next) => {
   try {
     const body = req.body || {};
     if (body.type && body.type !== 'store-backup') {
