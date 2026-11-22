@@ -38,6 +38,45 @@ const CONTACT_PATTERNS = {
 
 let promptOpen = false;
 
+/**
+ * 下单幂等键：同一份购物车内容在多次点击 / 重试提交时复用同一个 clientOrderId，
+ * 购物车内容变化或下单成功后重新生成，避免重复提交产生重复订单。
+ */
+let orderSession = { signature: '', clientOrderId: '' };
+
+function newClientOrderId() {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch (err) {
+    /* 浏览器不支持时降级 */
+  }
+  return `co-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function cartSignature(items) {
+  return items
+    .map((item) =>
+      [item.productId, item.specName || '', item.colorName || '', item.patternName || '', item.quantity]
+        .join('|')
+        .toLowerCase()
+    )
+    .join(';');
+}
+
+function clientOrderIdFor(items) {
+  const signature = cartSignature(items);
+  if (!orderSession.clientOrderId || orderSession.signature !== signature) {
+    orderSession = { signature, clientOrderId: newClientOrderId() };
+  }
+  return orderSession.clientOrderId;
+}
+
+function resetOrderSession() {
+  orderSession = { signature: '', clientOrderId: '' };
+}
+
 function summaryItemsHtml(items) {
   return items
     .map(
@@ -542,8 +581,11 @@ export async function render(root, params = {}, query = {}) {
         return;
       }
 
+      const cartItems = getItems();
       const payload = {
-        items: getItems().map((item) => ({
+        // 同一结算页会话内重复提交复用同一个幂等键
+        clientOrderId: clientOrderIdFor(cartItems),
+        items: cartItems.map((item) => ({
           productId: item.productId,
           specName: item.specName,
           colorName: item.colorName,
@@ -568,6 +610,8 @@ export async function render(root, params = {}, query = {}) {
         const order = data && data.order;
         const orderNo = order && order.orderNo;
         const needsPayment = order && order.status === 'pending_payment';
+        // 下单成功后作废本次幂等键，下一单重新生成
+        resetOrderSession();
         clearCart();
         toast(
           needsPayment

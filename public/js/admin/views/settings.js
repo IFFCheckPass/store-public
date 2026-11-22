@@ -12,11 +12,35 @@ let currentRoot = null;
 let currentCtx = null;
 let saved = null;
 
+/** 收款码与支付文案：仅超级管理员可修改（防止普通管理员改支付页话术做钓鱼） */
+const SUPER_ONLY_KEYS = [
+  'qrWechatUrl',
+  'qrAlipayUrl',
+  'paymentTitle',
+  'paymentSubtitle',
+  'paymentNote',
+  'paymentTip'
+];
+
 const IMAGE_FIELDS = [
   { key: 'logoUrl', label: '站点 Logo', hint: '建议正方形，显示在用户端、生产端与管理端顶部' },
-  { key: 'qrWechatUrl', label: '微信收款码', hint: '上传实际收款二维码图片，用户支付时展示' },
-  { key: 'qrAlipayUrl', label: '支付宝收款码', hint: '上传实际收款二维码图片，用户支付时展示' },
+  {
+    key: 'qrWechatUrl',
+    label: '微信收款码',
+    hint: '上传实际收款二维码图片，用户支付时展示',
+    superOnly: true
+  },
+  {
+    key: 'qrAlipayUrl',
+    label: '支付宝收款码',
+    hint: '上传实际收款二维码图片，用户支付时展示',
+    superOnly: true
+  },
 ];
+
+function isSuperAdmin(staff) {
+  return !!staff && staff.role === 'super_admin';
+}
 
 function field(label, key, value, options = {}) {
   const { type = 'text', maxlength = 200, hint = '', placeholder = '' } = options;
@@ -57,7 +81,10 @@ function colorField(label, key, value) {
   `;
 }
 
-function imageField(config, value) {
+function imageField(config, value, locked = false) {
+  // 只有标记 superOnly 的字段（收款码）才对普通管理员上锁
+  const isLocked = !!locked && !!config.superOnly;
+  const disabled = isLocked ? ' disabled' : '';
   return `
     <div class="field field--full">
       <label class="field-label" for="s-${config.key}">${escapeHtml(config.label)}</label>
@@ -67,12 +94,19 @@ function imageField(config, value) {
         )}" alt="">
         <div class="media-editor__body">
           <input class="input" id="s-${config.key}" data-key="${config.key}" type="text" maxlength="2000"
-            value="${escapeHtml(value)}" placeholder="图片地址，或点击上传">
+            value="${escapeHtml(value)}" placeholder="图片地址，或点击上传"${disabled}>
           <div class="media-editor__actions">
-            <button class="btn btn--sm btn--soft" type="button" data-upload-key="${config.key}">上传图片</button>
-            <input type="file" accept="image/*" hidden data-file-for="${config.key}">
+            <button class="btn btn--sm btn--soft" type="button" data-upload-key="${config.key}"${disabled}${
+              isLocked ? ' title="仅超级管理员可修改收款码"' : ''
+            }>上传图片</button>
+            <input type="file" accept="image/*" hidden data-file-for="${config.key}"${disabled}>
           </div>
           <p class="field-hint">${escapeHtml(config.hint)}</p>
+          ${
+            isLocked
+              ? '<p class="field-hint" data-super-only-note>仅超级管理员可修改收款码</p>'
+              : ''
+          }
         </div>
       </div>
     </div>
@@ -102,8 +136,9 @@ function tutorialRowHtml(step, index, total) {
   `;
 }
 
-function formHtml(settings) {
+function formHtml(settings, canEditQr = true) {
   const tutorial = Array.isArray(settings.paymentTutorial) ? settings.paymentTutorial : [];
+  const qrLocked = !canEditQr;
   return `
     <div data-settings-form>
     <div class="admin-page-head">
@@ -200,8 +235,8 @@ function formHtml(settings) {
         <div class="form-grid">
           ${field('支付弹窗标题', 'paymentTitle', settings.paymentTitle, { maxlength: 60 })}
           ${field('支付弹窗副标题', 'paymentSubtitle', settings.paymentSubtitle, { maxlength: 200 })}
-          ${imageField(IMAGE_FIELDS[1], settings.qrWechatUrl)}
-          ${imageField(IMAGE_FIELDS[2], settings.qrAlipayUrl)}
+          ${imageField(IMAGE_FIELDS[1], settings.qrWechatUrl, qrLocked)}
+          ${imageField(IMAGE_FIELDS[2], settings.qrAlipayUrl, qrLocked)}
           ${field('收款码标注', 'paymentNote', settings.paymentNote, { maxlength: 120 })}
           ${textarea('收款码说明', 'paymentTip', settings.paymentTip, {
             full: true,
@@ -241,7 +276,7 @@ async function loadView() {
     const data = await api.settings();
     if (!ctx.isCurrent()) return;
     saved = data && data.settings ? data.settings : {};
-    container.innerHTML = formHtml(saved);
+    container.innerHTML = formHtml(saved, isSuperAdmin(ctx.staff));
     bindForm();
   } catch (err) {
     if (!ctx.isCurrent()) return;
@@ -288,8 +323,12 @@ function bindForm() {
 
   const collect = () => {
     const values = {};
+    const skipSuperOnly = !isSuperAdmin(currentCtx && currentCtx.staff);
     form.querySelectorAll('[data-key]').forEach((input) => {
-      values[input.dataset.key] = input.value.trim();
+      const key = input.dataset.key;
+      // 非超级管理员不提交收款码字段，交由后端保持原值
+      if (skipSuperOnly && SUPER_ONLY_KEYS.includes(key)) return;
+      values[key] = input.value.trim();
     });
     const heroTrustInput = form.querySelector('[data-key="heroTrust"]');
     values.heroTrust = heroTrustInput
@@ -303,7 +342,8 @@ function bindForm() {
       : Array.isArray(saved && saved.footerShoppingTips)
         ? saved.footerShoppingTips
         : [];
-    values.paymentTutorial = collectTutorial();
+    // 支付教程同样属于支付话术，非超管不提交（保持原值）
+    if (!skipSuperOnly) values.paymentTutorial = collectTutorial();
     return values;
   };
 

@@ -183,6 +183,16 @@ function buildProduct(body, existing) {
   if (!colors.length) throw badRequest('请至少添加一个颜色');
   if (isCustom && !patterns.length) throw badRequest('定制商品请至少添加一个图案选项');
 
+  // 负加价交叉校验：最坏组合（底价 + 各选项最小加价）必须 ≥ 0，否则下单会算出负金额
+  const minDelta = (list) =>
+    list.length ? Math.min(...list.map((item) => Number(item.delta) || 0)) : 0;
+  const minUnitPrice = basePrice + minDelta(specs) + minDelta(colors) + minDelta(patterns);
+  if (minUnitPrice < 0) {
+    throw badRequest(
+      `加价设置后最低成交价会变成负数（${(minUnitPrice / 100).toFixed(2)} 元），请调整规格/颜色/图案加价`
+    );
+  }
+
   return {
     name,
     category,

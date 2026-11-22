@@ -123,6 +123,14 @@ function giftBadge(gift) {
   return `<span class="status-badge status-badge--sm" data-status="${state.dataStatus}">${state.label}</span>`;
 }
 
+function superOnlyEmptyHtml() {
+  return emptyBlock(
+    '仅超级管理员可用',
+    '赠货码的查看、生成与启停仅限超级管理员，如需处理请联系超级管理员。',
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5M12 14.5v2.5"/></svg>'
+  );
+}
+
 function pageHtml(staff) {
   const superAdmin = isSuper(staff);
   return `
@@ -133,24 +141,16 @@ function pageHtml(staff) {
         <p>生成免支付赠货码，控制使用次数、有效期与启停状态。</p>
       </div>
       <div class="admin-page-head__actions">
-        <button class="btn btn--line" type="button" data-refresh>刷新</button>
         ${
           superAdmin
-            ? '<button class="btn btn--primary" type="button" data-new-gift>生成赠货码</button>'
+            ? `<button class="btn btn--line" type="button" data-refresh>刷新</button>
+               <button class="btn btn--primary" type="button" data-new-gift>生成赠货码</button>`
             : ''
         }
       </div>
     </div>
-    ${
-      superAdmin
-        ? ''
-        : `<div class="readonly-note">
-             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>
-             <span><b>只读模式：</b>普通管理员可查看与复制赠货码，生成与启停操作仅限超级管理员。</span>
-           </div>`
-    }
     <div data-highlight></div>
-    <div data-gifts>${loadingBlock('正在读取赠货码…')}</div>
+    <div data-gifts>${superAdmin ? loadingBlock('正在读取赠货码…') : superOnlyEmptyHtml()}</div>
   `;
 }
 
@@ -443,6 +443,8 @@ async function onClick(event) {
   if (!root) return;
 
   if (event.target.closest('[data-refresh]') || event.target.closest('[data-retry]')) {
+    // 非超级管理员不请求赠货码列表接口
+    if (!isSuper(currentCtx && currentCtx.staff)) return;
     load();
     return;
   }
@@ -476,12 +478,14 @@ export function render(root, ctx) {
   currentCodes = [];
   creatorMap = new Map();
   highlightCode = '';
-  root.innerHTML = pageHtml(ctx.staff);
+  root.innerHTML = pageHtml(ctx && ctx.staff);
 
   if (!bound.has(root)) {
     root.addEventListener('click', onClick);
     bound.add(root);
   }
 
+  // 普通管理员只看到「仅超级管理员可用」空态，不发起列表请求
+  if (!isSuper(ctx && ctx.staff)) return;
   load();
 }

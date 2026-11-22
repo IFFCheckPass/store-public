@@ -1,7 +1,8 @@
+import crypto from 'node:crypto';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { db } from '../db.js';
+import { db, DB_PATH } from '../db.js';
 import { hashPassword, requireStaff } from '../auth.js';
 import { audit } from '../lib/audit.js';
 import { addOrderEvent } from '../lib/events.js';
@@ -25,6 +26,7 @@ import {
   INTERNAL_TASK_LABELS,
   buildOrderDetail,
   createExternalTasks,
+  releaseOrderResources,
   summarizeOrders,
 } from './orders.js';
 import { parseScope, scopeLabel } from '../lib/gift-codes.js';
@@ -185,7 +187,7 @@ router.get('/overview', adminOnly, (req, res) => {
   });
 });
 
-router.get('/staff', adminOnly, (req, res) => {
+router.get('/staff', superOnly, (req, res) => {
   const rows = db.prepare('SELECT * FROM staff ORDER BY id ASC').all();
   return res.json({ staff: rows.map(staffRowView) });
 });
@@ -220,7 +222,7 @@ const BACKUP_TABLES = [
   {
     key: 'giftCodes',
     table: 'gift_codes',
-    columns: ['id', 'code', 'note', 'max_uses', 'used_count', 'expires_at', 'active', 'scope_type', 'scope_json', 'created_by', 'created_at'],
+    columns: ['id', 'code', 'note', 'max_uses', 'used_count', 'expires_at', 'active', 'scope_type', 'scope_json', 'max_free_items', 'created_by', 'created_at'],
   },
   {
     key: 'giftCodeUsages',
@@ -293,15 +295,9 @@ function accountEntry(raw, index) {
   }
   const status = raw.status === undefined ? 'active' : str(raw.status);
   if (!['active', 'disabled'].includes(status)) throw badRequest(`${label}状态不正确`);
-  const passwordHash = typeof raw.passwordHash === 'string' ? raw.passwordHash.trim() : '';
-  if (passwordHash && !/^[a-f0-9]{32}:[a-f0-9]{128}$/i.test(passwordHash)) {
-    throw badRequest(`${label}密码哈希格式不正确`);
-  }
+  // 导入不接受外部密码哈希：已有账号保留原密码，新账号由系统生成随机密码并停用
   const existing = db.prepare('SELECT * FROM staff WHERE username = ?').get(username);
-  if (!existing && !passwordHash) {
-    throw badRequest(`${label}缺少密码哈希，无法创建新账号`);
-  }
-  return { username, studentId, displayName, role, status, passwordHash, existing };
+  return { username, studentId, displayName, role, status, existing };
 }
 
 const IMAGE_MIME = {
@@ -369,7 +365,7 @@ router.get('/backup/export', superOnly, (req, res) => {
       displayName: row.display_name,
       role: row.role,
       status: row.status,
-      passwordHash: row.password_hash,
+      // 不导出密码哈希：备份文件外泄时避免离线爆破；导入的账号一律停用并需重置密码
       createdAt: row.created_at,
     }));
 
@@ -415,18 +411,47 @@ router.get('/backup/export', superOnly, (req, res) => {
 router.post('/backup/import', superOnly, express.json({ limit: '50mb' }), (req, res, next) => {
   try {
     const body = req.body || {};
-    if (body.type && body.type !== 'store-backup') {
-      return res.status(400).json({ error: '不是有效的店铺备份文件' });
+    if (body.type !== 'store-backup') {
+      return res.status(400).json({ error: '不是有效的店铺备份文件（缺少 store-backup 标识）' });
     }
-    const accounts = Array.isArray(body.accounts) ? body.accounts : null;
+    if (body.confirm !== 'IMPORT') {
+      return res.status(400).json({ error: '导入会覆盖现有订单/商品数据，请在确认框输入 IMPORT 后再提交' });
+    }
+    const accounts = Array.isArray(body.accounts) ? body.accounts : [];
     const data = body.data && typeof body.data === 'object' ? body.data : null;
-    if (!accounts && !data) return res.status(400).json({ error: '备份文件为空' });
-    if (accounts && accounts.length > 500) {
-      return res.status(400).json({ error: '单次最多导入 500 个账号' });
+    if (!data) return res.status(400).json({ error: '备份文件缺少 data 段' });
+    if (accounts.length > 500) return res.status(400).json({ error: '单次最多导入 500 个账号' });
+
+    // 完整性：所有业务表必须齐全，绝不允许「缺表即清表」
+    const missingKeys = BACKUP_TABLES.filter((spec) => !Array.isArray(data[spec.key])).map(
+      (spec) => spec.key
+    );
+    if (missingKeys.length) {
+      return res.status(400).json({ error: `备份文件不完整，缺少数据表：${missingKeys.join('、')}` });
+    }
+    for (const spec of BACKUP_TABLES) {
+      for (const row of data[spec.key]) {
+        if (!row || typeof row !== 'object' || Array.isArray(row)) {
+          throw badRequest(`备份中 ${spec.key} 存在格式不正确的数据行`);
+        }
+        for (const column of spec.columns) {
+          const value = row[column];
+          if (value !== null && value !== undefined && typeof value === 'object') {
+            throw badRequest(`备份中 ${spec.key} 的字段 ${column} 类型不正确`);
+          }
+        }
+      }
     }
 
+    // 导入前先给当前数据库留快照，出问题可人工回滚
+    const backupDir = path.join(path.dirname(DB_PATH), 'backups');
+    fs.mkdirSync(backupDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const snapshotPath = path.join(backupDir, `pre-import-${stamp}.db`);
+    fs.copyFileSync(DB_PATH, snapshotPath);
+
     const preparedAccounts = [];
-    if (accounts) {
+    if (accounts.length) {
       const seen = new Set();
       accounts.forEach((raw, index) => {
         const entry = accountEntry(raw, index);
@@ -438,6 +463,9 @@ router.post('/backup/import', superOnly, express.json({ limit: '50mb' }), (req, 
       });
     }
 
+    // 图片必须在数据库提交之前恢复：文件失败则数据库完全不动
+    const restoredFiles = restoreUploadFiles(body.files);
+
     let created = 0;
     let updated = 0;
     const restored = {};
@@ -446,65 +474,55 @@ router.post('/backup/import', superOnly, express.json({ limit: '50mb' }), (req, 
     try {
       for (const item of preparedAccounts) {
         if (item.existing) {
+          // 已有账号：只补显示名/学号，绝不通过导入改角色和密码（防止一键接管超管）
           db.prepare(`
-            UPDATE staff SET student_id = ?, display_name = ?, role = ?, status = ?,
-              password_hash = ?, updated_at = datetime('now','localtime') WHERE id = ?
-          `).run(
-            item.studentId,
-            item.displayName,
-            item.role,
-            item.status,
-            item.passwordHash || item.existing.password_hash,
-            item.existing.id
-          );
+            UPDATE staff SET student_id = ?, display_name = ?, updated_at = datetime('now','localtime')
+            WHERE id = ?
+          `).run(item.studentId, item.displayName, item.existing.id);
           updated += 1;
         } else {
+          // 新账号一律停用 + 随机密码，需超管手动启用并重置密码
           db.prepare(`
             INSERT INTO staff (username, student_id, password_hash, display_name, role, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'), datetime('now','localtime'))
+            VALUES (?, ?, ?, ?, ?, 'disabled', datetime('now','localtime'), datetime('now','localtime'))
           `).run(
             item.username,
             item.studentId,
-            item.passwordHash,
+            hashPassword(crypto.randomBytes(24).toString('base64url')),
             item.displayName,
-            item.role,
-            item.status
+            item.role === 'super_admin' ? 'admin' : item.role
           );
           created += 1;
         }
       }
 
-      if (data) {
-        for (const table of BACKUP_DELETE_ORDER) {
-          db.prepare(`DELETE FROM ${table}`).run();
-        }
+      for (const table of BACKUP_DELETE_ORDER) {
+        db.prepare(`DELETE FROM ${table}`).run();
+      }
 
-        for (const spec of BACKUP_TABLES) {
-          const rows = data[spec.key] === undefined ? [] : data[spec.key];
-          if (!Array.isArray(rows)) throw badRequest(`备份中的 ${spec.key} 数据格式不正确`);
-          restored[spec.key] = rows.length;
-          if (!rows.length) continue;
-          const sql = `INSERT INTO ${spec.table} (${spec.columns.join(', ')}) VALUES (${spec.columns
-            .map(() => '?')
-            .join(', ')})`;
-          const insert = db.prepare(sql);
-          for (const row of rows) {
-            if (!row || typeof row !== 'object') throw badRequest('备份数据行格式不正确');
-            insert.run(
-              ...spec.columns.map((column) => {
-                const value = row[column];
-                if (value === undefined || value === null) {
-                  return spec.fill && column in spec.fill ? spec.fill[column] : null;
-                }
-                return value;
-              })
-            );
-          }
+      for (const spec of BACKUP_TABLES) {
+        const rows = data[spec.key];
+        restored[spec.key] = rows.length;
+        if (!rows.length) continue;
+        const sql = `INSERT INTO ${spec.table} (${spec.columns.join(', ')}) VALUES (${spec.columns
+          .map(() => '?')
+          .join(', ')})`;
+        const insert = db.prepare(sql);
+        for (const row of rows) {
+          insert.run(
+            ...spec.columns.map((column) => {
+              const value = row[column];
+              if (value === undefined || value === null) {
+                return spec.fill && column in spec.fill ? spec.fill[column] : null;
+              }
+              return value;
+            })
+          );
         }
+      }
 
-        if (body.settings && typeof body.settings === 'object') {
-          saveSettings(body.settings);
-        }
+      if (body.settings && typeof body.settings === 'object') {
+        saveSettings(body.settings);
       }
 
       const activeSupers = Number(
@@ -526,16 +544,14 @@ router.post('/backup/import', superOnly, express.json({ limit: '50mb' }), (req, 
       throw err;
     }
 
-    const restoredFiles = restoreUploadFiles(body.files);
-
     audit(
       'staff',
       Number(req.staff.sub),
       req.staff.name || '',
       'backup.import',
-      `导入完整备份：新增账号 ${created} 个，更新 ${updated} 个，恢复订单 ${restored.orders || 0} 个，图片 ${restoredFiles} 张`
+      `导入完整备份：新增账号 ${created} 个（停用待重置），更新 ${updated} 个，恢复订单 ${restored.orders || 0} 个，图片 ${restoredFiles} 张，导入前快照 ${snapshotPath}`
     );
-    return res.json({ created, updated, restored, files: restoredFiles });
+    return res.json({ created, updated, restored, files: restoredFiles, snapshot: snapshotPath });
   } catch (err) {
     return next(err);
   }
@@ -777,7 +793,27 @@ router.get('/payments', adminOnly, (req, res) => {
   });
 });
 
-router.post('/payments/:id/review', adminOnly, (req, res, next) => {
+// 管理端查看支付截图（staff 登录即可，核验操作另行限超管）
+router.get('/payments/:id/screenshot', adminOnly, (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const payment = Number.isInteger(id)
+      ? db.prepare('SELECT * FROM payments WHERE id = ?').get(id)
+      : undefined;
+    if (!payment || !payment.screenshot_path) {
+      return res.status(404).json({ error: '支付截图不存在' });
+    }
+    const abs = path.join(UPLOADS_DIR, path.basename(payment.screenshot_path));
+    if (!fs.existsSync(abs)) return res.status(404).json({ error: '支付截图文件不存在' });
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return res.sendFile(abs);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/payments/:id/review', superOnly, (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const payment = Number.isInteger(id) ? db.prepare('SELECT * FROM payments WHERE id = ?').get(id) : undefined;
@@ -796,6 +832,21 @@ router.post('/payments/:id/review', adminOnly, (req, res, next) => {
     const note = str(req.body?.note).slice(0, 300);
     if (!['approve', 'reject'].includes(action)) {
       return res.status(400).json({ error: '请选择核验操作' });
+    }
+    // 核验通过时必须核对实收金额（传了 paidAmount 就严格比对，防止小额截图核验大额订单）
+    const paidAmountRaw = req.body?.paidAmount;
+    if (action === 'approve' && paidAmountRaw !== undefined && paidAmountRaw !== null && paidAmountRaw !== '') {
+      const paidAmount = Number(paidAmountRaw);
+      if (!Number.isInteger(paidAmount) || paidAmount < 0) {
+        return res.status(400).json({ error: '实收金额格式不正确（单位：分）' });
+      }
+      if (paidAmount !== Number(order.total_amount)) {
+        return res.status(400).json({
+          error: `实收金额 ${(paidAmount / 100).toFixed(2)} 元与订单金额 ${(
+            Number(order.total_amount) / 100
+          ).toFixed(2)} 元不一致，禁止核验通过`,
+        });
+      }
     }
 
     const reviewerId = Number(req.staff.sub);
@@ -867,7 +918,7 @@ router.post('/payments/:id/review', adminOnly, (req, res, next) => {
   }
 });
 
-router.get('/gift-codes', adminOnly, (req, res) => {
+router.get('/gift-codes', superOnly, (req, res) => {
   const rows = db.prepare('SELECT * FROM gift_codes ORDER BY id ASC').all();
   return res.json({
     giftCodes: rows.map(giftCodeView),
@@ -1017,15 +1068,15 @@ router.post('/deletion-requests/:id/approve', superOnly, (req, res, next) => {
       );
 
       if (count >= request.required_count) {
+        const targetOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(request.order_id);
+        if (!targetOrder) return res.status(404).json({ error: '订单不存在' });
+        // 删除前按「取消」同一套口径回补库存/赠货码，且只取消未完成的任务（已完成任务保留痕迹）
+        releaseOrderResources(targetOrder);
         db.prepare(`
           UPDATE orders SET status = 'deleted', deleted_at = datetime('now','localtime'), deleted_by = ?,
             updated_at = datetime('now','localtime')
           WHERE id = ?
         `).run(staffId, request.order_id);
-        db.prepare(`
-          UPDATE production_tasks SET status = 'cancelled', updated_at = datetime('now','localtime')
-          WHERE order_id = ?
-        `).run(request.order_id);
         db.prepare(`
           UPDATE order_deletion_requests SET status = 'approved', resolved_at = datetime('now','localtime')
           WHERE id = ?

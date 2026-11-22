@@ -11,8 +11,19 @@ router.get('/', adminOnly, (req, res) => {
   res.json({ settings: getSettings() });
 });
 
+// 收款码与支付文案属于资金链路配置，只有超级管理员能改（普通管理员可读不可改）
+const FUNDS_KEYS = ['qrWechatUrl', 'qrAlipayUrl', 'paymentTitle', 'paymentSubtitle', 'paymentNote', 'paymentTip', 'paymentTutorial'];
+
 router.put('/', adminOnly, (req, res, next) => {
   try {
+    if (req.staff.role !== 'super_admin') {
+      const raw = req.body?.settings !== undefined ? req.body.settings : req.body;
+      const attempted = raw && typeof raw === 'object' ? Object.keys(raw) : [];
+      const hit = attempted.filter((key) => FUNDS_KEYS.includes(key));
+      if (hit.length) {
+        return res.status(403).json({ error: `收款码/支付信息只能由超级管理员修改（${hit.join('、')}）` });
+      }
+    }
     const source = req.body?.settings !== undefined ? req.body.settings : req.body;
     const patch = normalizeSettingsPatch(source);
     if (Object.keys(patch).length === 0) {

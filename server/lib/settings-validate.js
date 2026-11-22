@@ -27,6 +27,15 @@ const URL_FIELDS = ['logoUrl', 'faviconUrl', 'qrWechatUrl', 'qrAlipayUrl'];
 const COLOR_FIELDS = ['primaryColor', 'accentColor', 'backgroundColor'];
 const COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
+/** 图片地址最长 500 字符（前端 <img src> 用不到更长，缩短可减少存储型注入面） */
+const IMAGE_URL_MAX_LENGTH = 500;
+/** 会破坏 HTML 属性或开标签的字符：引号、尖括号、反引号 */
+const URL_FORBIDDEN_RE = /["'<>`]/;
+/** 空白与控制字符（\s 含常规空白，另外补上 C0 控制符与 DEL） */
+const URL_SPACE_CONTROL_RE = /[\s\u0000-\u001f\u007f]/;
+/** 站内路径只允许 URL 路径里常见的可见字符，且必须以单个 / 开头（排除 //host 协议相对地址） */
+const SITE_PATH_RE = /^\/[A-Za-z0-9\-._~!$&()*+,;=:@%?#/]*$/;
+
 function readString(value, label, limit) {
   if (typeof value !== 'string') throw badRequest(`${label}格式不正确`);
   const text = value.trim();
@@ -34,10 +43,37 @@ function readString(value, label, limit) {
   return text;
 }
 
+function isHttpUrl(text) {
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+}
+
+/**
+ * 校验站内路径 / http(s) 图片地址。
+ * 除协议与长度外，必须拒绝能跳出 HTML 属性或注入标签的字符，
+ * 否则 logoUrl 之类会被拼进 <img src="..."> 造成存储型 XSS。
+ */
 function readImageUrl(value, label) {
-  const text = readString(value, label, 2000);
+  const text = readString(value, label, IMAGE_URL_MAX_LENGTH);
   if (!text) return '';
-  if (text.startsWith('/') || /^https?:\/\//i.test(text)) return text;
+  if (URL_FORBIDDEN_RE.test(text) || URL_SPACE_CONTROL_RE.test(text)) {
+    throw badRequest(`${label}不能包含引号、尖括号、反引号或空白字符`);
+  }
+  if (/^https?:\/\//i.test(text)) {
+    if (!isHttpUrl(text)) throw badRequest(`${label}不是合法的 http(s) 地址`);
+    return text;
+  }
+  if (text.startsWith('/')) {
+    // //evil.com/x 是协议相对地址，会被浏览器当成外站请求，不接受
+    if (text.startsWith('//')) throw badRequest(`${label}需要是站内路径或 http(s) 图片地址`);
+    if (!SITE_PATH_RE.test(text)) throw badRequest(`${label}站内路径包含不支持的字符`);
+    return text;
+  }
   throw badRequest(`${label}需要是站内路径或 http(s) 图片地址`);
 }
 

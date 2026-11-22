@@ -123,6 +123,8 @@ function deliveryHtml(order) {
 function paymentHtml(order) {
   const payment = order.payment;
   const method = paymentMethodLabel(order.paymentMethod);
+  // 优先使用后端鉴权后的截图地址，缺省回退到旧字段
+  const screenshotUrl = payment ? payment.screenshotViewUrl || payment.screenshotUrl : '';
 
   return `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -149,9 +151,9 @@ function paymentHtml(order) {
     }
 
     ${
-      payment && payment.screenshotUrl
-        ? `<a class="detail-pay-shot" href="${escapeHtml(payment.screenshotUrl)}" target="_blank" rel="noopener" title="点击查看支付截图大图">
-             <img src="${escapeHtml(safeImage(payment.screenshotUrl))}" alt="支付截图" loading="lazy">
+      screenshotUrl
+        ? `<a class="detail-pay-shot" href="${escapeHtml(screenshotUrl)}" target="_blank" rel="noopener" title="点击查看支付截图大图">
+             <img src="${escapeHtml(safeImage(screenshotUrl))}" alt="支付截图" loading="lazy">
              <span class="detail-pay-shot__hint">点击查看大图</span>
            </a>`
         : '<p class="field-hint" style="margin-top:10px">暂无支付截图。</p>'

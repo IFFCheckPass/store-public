@@ -286,13 +286,18 @@ async function main() {
       expectStatus(paid, 200, '上传支付截图');
       expect(paid.data.order.status === 'pending_review', `上传后状态应为 pending_review，实际 ${paid.data.order.status}`);
       expect(
-        typeof paid.data.order.payment?.screenshotUrl === 'string' &&
-          paid.data.order.payment.screenshotUrl.startsWith('/uploads/'),
-        '支付截图 URL 未生成'
+        typeof paid.data.order.payment?.screenshotViewUrl === 'string' &&
+          paid.data.order.payment.screenshotViewUrl.startsWith('/api/orders/'),
+        '支付截图鉴权 URL 未生成'
       );
 
+      // 支付截图不能被静态直链访问（含付款人信息），只能走鉴权接口
       const fileRes = await fetch(`${BASE}${paid.data.order.payment.screenshotUrl}`);
-      expect(fileRes.ok, '支付截图静态文件不可访问');
+      expect(!fileRes.ok, '支付截图不应能通过静态地址直接访问');
+      const secRes = await fetch(`${BASE}${paid.data.order.payment.screenshotViewUrl}`, {
+        headers: { cookie: user.header() },
+      });
+      expect(secRes.ok, '支付截图鉴权接口不可访问');
 
       const mine = await request(user, 'GET', '/api/orders/mine');
       expectStatus(mine, 200, 'GET /api/orders/mine');
@@ -310,9 +315,11 @@ async function main() {
       expect(payment, '核验队列中缺少该订单支付记录');
       state.paymentId = payment.id;
 
-      const review = await request(admin, 'POST', `/api/admin/payments/${payment.id}/review`, {
+      // 资金核验已收紧为仅超级管理员可操作
+      const review = await request(super2, 'POST', `/api/admin/payments/${payment.id}/review`, {
         action: 'approve',
         note: '金额一致，核验通过',
+        paidAmount: payment.amount,
       });
       expectStatus(review, 200, '核验通过');
       const order = review.data.order;
@@ -403,7 +410,7 @@ async function main() {
       expect(welcome, '缺少 WELCOME2026 赠货码');
       state.giftUsedBefore = welcome.usedCount;
 
-      const validate = await request(guest, 'POST', '/api/gift-codes/validate', { code: 'WELCOME2026' });
+      const validate = await request(user, 'POST', '/api/gift-codes/validate', { code: 'WELCOME2026' });
       expectStatus(validate, 200, '赠货码校验');
       expect(validate.data.valid === true, 'WELCOME2026 应可用');
 
@@ -448,7 +455,7 @@ async function main() {
       expectStatus(invalid, 400, '无效赠货码下单');
       expect(String(invalid.data.error).includes('不存在'), `无效码错误信息不符：${JSON.stringify(invalid.data)}`);
 
-      const invalidValidate = await request(guest, 'POST', '/api/gift-codes/validate', { code: 'NO-SUCH-CODE' });
+      const invalidValidate = await request(user, 'POST', '/api/gift-codes/validate', { code: 'NO-SUCH-CODE' });
       expectStatus(invalidValidate, 400, '无效赠货码校验');
       expect(invalidValidate.data.valid === false, '无效码应返回 valid:false');
     });

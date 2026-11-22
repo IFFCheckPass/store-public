@@ -3,7 +3,13 @@
  */
 import { api } from './api.js';
 import { escapeHtml, initials, installImageFallback, toast, closeModal } from '/js/ui.js';
-import { applyTheme, brandName, currentSettings, loadSiteSettings } from '/js/site-settings.js';
+import {
+  applyTheme,
+  brandName,
+  currentSettings,
+  isSafeImageUrl,
+  loadSiteSettings
+} from '/js/site-settings.js';
 import { brandMark, roleBadge, roleLabel } from './shared.js';
 import { render as renderLogin } from './views/login.js';
 import { maybePromptStudentId } from '/js/staff-profile-prompt.js';
@@ -159,9 +165,17 @@ function applyAdminBranding() {
   if (nameEl) nameEl.textContent = `${settings.brandName} · 管理中心`;
   const foot = appEl.querySelector('[data-admin-brand-footer]');
   if (foot) foot.textContent = `${settings.brandName} · 运营后台`;
-  if (settings.logoUrl) {
+  const logo = isSafeImageUrl(settings.logoUrl) ? String(settings.logoUrl).trim() : '';
+  if (logo) {
     appEl.querySelectorAll('.brand-mark').forEach((mark) => {
-      mark.innerHTML = `<img src="${settings.logoUrl}" alt="">`;
+      if (mark.querySelector('img[data-brand-logo]')) return;
+      // 用 DOM API 设置 src，避免 logoUrl 注入 HTML
+      const img = document.createElement('img');
+      img.setAttribute('data-brand-logo', '');
+      img.alt = '';
+      img.addEventListener('error', () => img.remove());
+      img.src = logo;
+      mark.appendChild(img);
     });
   }
 }

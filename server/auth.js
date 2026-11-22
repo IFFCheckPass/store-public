@@ -70,13 +70,20 @@ export async function verifyToken(token) {
   }
 }
 
+/** 生产环境（经 Cloudflare 的 HTTPS）默认只允许 HTTPS 传输 Cookie；本地调试可显式 COOKIE_SECURE=false 关闭 */
+function secureCookie() {
+  if (process.env.COOKIE_SECURE === 'false') return false;
+  if (process.env.COOKIE_SECURE === 'true') return true;
+  return process.env.NODE_ENV === 'production';
+}
+
 function cookieOptions() {
   return {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
     maxAge: COOKIE_MAX_AGE,
-    secure: false,
+    secure: secureCookie(),
   };
 }
 
@@ -85,7 +92,7 @@ export function setSessionCookie(res, name, token) {
 }
 
 export function clearSessionCookie(res, name) {
-  res.clearCookie(name, { httpOnly: true, sameSite: 'lax', path: '/', secure: false });
+  res.clearCookie(name, { httpOnly: true, sameSite: 'lax', path: '/', secure: secureCookie() });
 }
 
 export function requireStaff(roles = []) {

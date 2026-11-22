@@ -11,7 +11,13 @@ import {
   openModal,
   setBusy
 } from '/js/ui.js';
-import { applyTheme, brandName, currentSettings, loadSiteSettings } from '/js/site-settings.js';
+import {
+  applyTheme,
+  brandName,
+  currentSettings,
+  isSafeImageUrl,
+  loadSiteSettings
+} from '/js/site-settings.js';
 import { brandMark, roleBadge, roleLabel } from './shared.js';
 import { render as renderLogin } from './views/login.js';
 import { maybePromptStudentId } from '/js/staff-profile-prompt.js';
@@ -118,9 +124,17 @@ function renderShell() {
   const settings = currentSettings();
   const brandEl = appEl.querySelector('[data-portal-brand-name]');
   if (brandEl) brandEl.textContent = settings.brandName;
-  if (settings.logoUrl) {
+  const logo = isSafeImageUrl(settings.logoUrl) ? String(settings.logoUrl).trim() : '';
+  if (logo) {
     appEl.querySelectorAll('.brand-mark').forEach((mark) => {
-      mark.innerHTML = `<img src="${settings.logoUrl}" alt="">`;
+      if (mark.querySelector('img[data-brand-logo]')) return;
+      // 用 DOM API 设置 src，避免 logoUrl 注入 HTML
+      const img = document.createElement('img');
+      img.setAttribute('data-brand-logo', '');
+      img.alt = '';
+      img.addEventListener('error', () => img.remove());
+      img.src = logo;
+      mark.appendChild(img);
     });
   }
 }

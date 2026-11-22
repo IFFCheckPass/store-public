@@ -19,7 +19,11 @@ let currentRoot = null;
 let currentCtx = null;
 let currentPayments = [];
 
-function pageHtml() {
+function isSuperAdmin(staff) {
+  return !!staff && staff.role === 'super_admin';
+}
+
+function pageHtml(canReview = false) {
   return `
     <div class="admin-page-head">
       <div class="admin-page-head__text">
@@ -31,12 +35,21 @@ function pageHtml() {
         <button class="btn btn--line" type="button" data-refresh>刷新队列</button>
       </div>
     </div>
+    ${
+      canReview
+        ? ''
+        : `<div class="readonly-note">
+             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg>
+             <span><b>只读模式：</b>普通管理员可查看待核验收款，核验通过 / 驳回仅限超级管理员操作。</span>
+           </div>`
+    }
     <div data-payments>${loadingBlock('正在读取待核验收款…')}</div>
   `;
 }
 
 function thumbHtml(payment) {
-  const url = payment.screenshotUrl;
+  // 优先使用后端鉴权后的截图地址，避免直连可公开访问的静态路径
+  const url = payment.screenshotViewUrl || payment.screenshotUrl;
   if (!url) {
     return '<span class="pay-thumb pay-thumb--empty">无截图</span>';
   }
@@ -47,7 +60,7 @@ function thumbHtml(payment) {
   `;
 }
 
-function resultHtml(payments) {
+function resultHtml(payments, canReview = true) {
   if (!payments.length) {
     return emptyBlock(
       '暂无待核验收款',
@@ -100,8 +113,12 @@ function resultHtml(payments) {
                     </td>
                     <td class="cell-muted cell-nowrap">${escapeHtml(text(payment.createdAt))}</td>
                     <td class="cell-actions">
-                      <button class="btn btn--sm btn--soft" type="button" data-pay-action="approve" data-pay-id="${payment.id}">通过</button>
-                      <button class="btn btn--sm btn--danger" type="button" data-pay-action="reject" data-pay-id="${payment.id}">驳回</button>
+                      ${
+                        canReview
+                          ? `<button class="btn btn--sm btn--soft" type="button" data-pay-action="approve" data-pay-id="${payment.id}">通过</button>
+                      <button class="btn btn--sm btn--danger" type="button" data-pay-action="reject" data-pay-id="${payment.id}">驳回</button>`
+                          : '<span class="cell-muted">需超级管理员核验</span>'
+                      }
                     </td>
                   </tr>
                 `
@@ -126,7 +143,7 @@ async function load() {
     const data = await api.payments('submitted');
     if (!ctx.isCurrent()) return;
     currentPayments = Array.isArray(data && data.payments) ? data.payments : [];
-    container.innerHTML = resultHtml(currentPayments);
+    container.innerHTML = resultHtml(currentPayments, isSuperAdmin(ctx.staff));
   } catch (err) {
     if (!ctx.isCurrent()) return;
     if (err && err.status === 401) return;
@@ -190,6 +207,10 @@ async function onClick(event) {
 
   const actionBtn = event.target.closest('[data-pay-action]');
   if (!actionBtn) return;
+  if (!isSuperAdmin(currentCtx && currentCtx.staff)) {
+    toast('需超级管理员核验', 'error');
+    return;
+  }
   const id = Number(actionBtn.dataset.payId);
   if (!Number.isInteger(id)) return;
   if (actionBtn.dataset.payAction === 'approve') handleApprove(id);
@@ -200,7 +221,7 @@ export function render(root, ctx) {
   currentRoot = root;
   currentCtx = ctx;
   currentPayments = [];
-  root.innerHTML = pageHtml();
+  root.innerHTML = pageHtml(isSuperAdmin(ctx && ctx.staff));
 
   if (!bound.has(root)) {
     root.addEventListener('click', onClick);

@@ -88,8 +88,15 @@ class Database {
 
   exec(sql) {
     const text = String(sql).trim();
-    this.raw.run(sql);
     const command = text.toUpperCase();
+    try {
+      this.raw.run(sql);
+    } catch (err) {
+      // ROLLBACK/COMMIT 本身失败时（例如 SQLite 已因 IO/磁盘错误自动回滚），
+      // 必须同步复位事务标记，否则后续所有写操作都会「静默不落盘」。
+      if (/^(COMMIT|END|ROLLBACK)\b/.test(command)) this.inTransaction = false;
+      throw err;
+    }
     if (/^BEGIN\b/.test(command) || /^SAVEPOINT\b/.test(command)) {
       this.inTransaction = true;
     } else if (/^(COMMIT|END|ROLLBACK)\b/.test(command)) {
@@ -99,18 +106,109 @@ class Database {
   }
 
   persist() {
-    if (this.inTransaction) return;
+    if (this.inTransaction) {
+      // 事务期间跳过落盘是设计行为；但若长期卡在事务里说明状态异常，需要告警
+      this.skippedPersists = (this.skippedPersists || 0) + 1;
+      if (this.skippedPersists === 500) {
+        console.warn('[sqlite] 已连续跳过 500 次落盘（事务标记可能异常卡住），请检查');
+      }
+      return;
+    }
+    this.skippedPersists = 0;
     const dir = path.dirname(this.file);
     fs.mkdirSync(dir, { recursive: true });
     const temporary = `${this.file}.tmp`;
-    fs.writeFileSync(temporary, Buffer.from(this.raw.export()));
+    const payload = Buffer.from(this.raw.export());
+    // 写临时文件 → fsync → 原子 rename → fsync 目录，保证断电后不会出现半写/空文件
+    const fd = fs.openSync(temporary, 'w');
+    try {
+      fs.writeFileSync(fd, payload);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     fs.renameSync(temporary, this.file);
+    try {
+      const dirFd = fs.openSync(dir, 'r');
+      try {
+        fs.fsyncSync(dirFd);
+      } finally {
+        fs.closeSync(dirFd);
+      }
+    } catch {
+      // 某些文件系统不支持目录 fsync，忽略
+    }
   }
+}
+
+/**
+ * 单实例锁：同一份数据库文件只允许一个进程写，避免两个进程各自持内存副本互相覆盖。
+ * 进程正常退出时会删除锁文件；异常退出留下的陈旧锁会校验 PID 后接管。
+ */
+function acquireInstanceLock(filePath) {
+  const lockFile = `${filePath}.lock`;
+  const writeLock = () => {
+    const fd = fs.openSync(lockFile, 'w');
+    fs.writeFileSync(fd, String(process.pid));
+    fs.closeSync(fd);
+  };
+  try {
+    const fd = fs.openSync(lockFile, 'wx');
+    fs.writeFileSync(fd, String(process.pid));
+    fs.closeSync(fd);
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+    let holderPid = 0;
+    try {
+      holderPid = Number(fs.readFileSync(lockFile, 'utf8').trim());
+    } catch {
+      holderPid = 0;
+    }
+    let alive = false;
+    if (holderPid > 0 && holderPid !== process.pid) {
+      try {
+        process.kill(holderPid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+    }
+    if (alive) {
+      throw new Error(`数据库已被另一个进程占用（pid ${holderPid}），拒绝启动以避免数据被覆盖`);
+    }
+    writeLock(); // 接管陈旧锁
+  }
+  const release = () => {
+    try {
+      if (Number(fs.readFileSync(lockFile, 'utf8').trim()) === process.pid) fs.unlinkSync(lockFile);
+    } catch {
+      // ignore
+    }
+  };
+  process.on('exit', release);
+  process.on('SIGTERM', () => {
+    release();
+    process.exit(0);
+  });
+  process.on('SIGINT', () => {
+    release();
+    process.exit(0);
+  });
 }
 
 export async function openDatabase(filePath) {
   const SQL = await loadSql();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+
+  // 清理上次崩溃留下的临时文件（每次写入最多残留一份全库大小，长期会占满磁盘）
+  try {
+    fs.rmSync(`${filePath}.tmp`, { force: true });
+  } catch {
+    // ignore
+  }
+
+  acquireInstanceLock(filePath);
 
   let raw;
   if (!fs.existsSync(filePath)) {
@@ -122,6 +220,24 @@ export async function openDatabase(filePath) {
       throw new Error(`数据库文件为空：${filePath}（拒绝启动，避免用空库覆盖历史数据，请从备份恢复）`);
     }
     raw = new SQL.Database(new Uint8Array(fs.readFileSync(filePath)));
+    // 完整性校验：损坏文件直接拒绝启动，并把坏文件改名保留，绝不带着坏库跑
+    try {
+      const check = raw.exec('PRAGMA integrity_check');
+      const verdict = check.length && check[0].values.length ? String(check[0].values[0][0]) : 'unknown';
+      if (verdict.toLowerCase() !== 'ok') {
+        throw new Error(`完整性校验失败：${verdict}`);
+      }
+    } catch (err) {
+      const corruptPath = `${filePath}.corrupt-${Date.now()}`;
+      try {
+        fs.renameSync(filePath, corruptPath);
+      } catch {
+        // ignore
+      }
+      throw new Error(
+        `数据库文件损坏（${err.message}），已备份为 ${corruptPath}。请放入最近一次备份后重启服务`
+      );
+    }
   }
 
   return new Database(filePath, raw);

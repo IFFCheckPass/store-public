@@ -225,6 +225,8 @@ function deliveryPanelHtml(order) {
 function paymentPanelHtml(order) {
   const meta = paymentMeta(order);
   const payment = order.payment || null;
+  // 截图地址优先用后端鉴权接口字段，回退旧字段；都没有则不渲染图片
+  const shot = payment ? payment.screenshotViewUrl || payment.screenshotUrl || '' : '';
   return `
     <section class="panel">
       <div class="panel-head">
@@ -247,9 +249,9 @@ function paymentPanelHtml(order) {
         </div>
       </div>
 
-      ${payment && payment.screenshotUrl
+      ${shot
         ? `<div class="pay-shot">
-             <img src="${escapeHtml(safeImage(payment.screenshotUrl))}" alt="支付截图" loading="lazy">
+             <img src="${escapeHtml(safeImage(shot))}" alt="支付截图" loading="lazy">
            </div>`
         : ''}
 
@@ -258,7 +260,7 @@ function paymentPanelHtml(order) {
         : order.paymentMethod === 'gift'
           ? ''
           : `<p class="field-hint" style="margin-top:10px">${
-              payment && payment.screenshotUrl
+              shot
                 ? '未填写支付单号，管理员将根据截图人工核对。'
                 : '暂未上传支付截图与单号。'
             }</p>`}

@@ -149,20 +149,44 @@ function setTextAll(selector, value) {
   });
 }
 
+/**
+ * 本地校验图片地址，防止把 logoUrl 之类的外部输入拼进 HTML 造成存储型 XSS。
+ * 只接受站内相对路径（以 / 开头）或 http(s) 绝对地址，且不含引号、尖括号、
+ * 反引号与任何空白字符。
+ */
+export function isSafeImageUrl(value) {
+  const url = String(value === undefined || value === null ? '' : value).trim();
+  if (!url || url.length > 2000) return false;
+  if (/["'<>`\s]/.test(url)) return false;
+  // 协议相对地址（//evil.com/a.png）会向外部域名发请求，一律拒绝
+  if (url.startsWith('//')) return false;
+  return url.startsWith('/') || /^https?:\/\//i.test(url);
+}
+
 function applyLogo(settings) {
-  const logo = String(settings.logoUrl || '').trim();
+  const logo = isSafeImageUrl(settings.logoUrl) ? String(settings.logoUrl).trim() : '';
   document.querySelectorAll('.brand-mark').forEach((mark) => {
-    if (logo) {
-      mark.innerHTML = `<img src="${logo}" alt="" loading="lazy">`;
+    const existing = mark.querySelector('img[data-brand-logo]');
+    if (!logo) {
+      if (existing) existing.remove();
+      return;
     }
-  });
-  if (logo) {
-    document.querySelectorAll('.brand-mark img').forEach((img) => {
-      img.addEventListener('error', () => {
-        img.remove();
-      });
+    if (existing) {
+      // 已存在则同步最新地址，避免重复调用叠加多张图
+      if (existing.getAttribute('src') !== logo) existing.src = logo;
+      return;
+    }
+    // 一律用 DOM API 设置图片地址，绝不拼接 innerHTML
+    const img = document.createElement('img');
+    img.setAttribute('data-brand-logo', '');
+    img.alt = '';
+    img.setAttribute('loading', 'lazy');
+    img.addEventListener('error', () => {
+      img.remove();
     });
-  }
+    img.src = logo;
+    mark.appendChild(img);
+  });
   if (settings.faviconUrl) {
     const icon = document.querySelector('link[rel="icon"]');
     if (icon) icon.setAttribute('href', settings.faviconUrl);

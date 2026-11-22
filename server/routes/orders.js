@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -5,6 +6,7 @@ import express from 'express';
 import { db } from '../db.js';
 import { requireUser } from '../auth.js';
 import { audit } from '../lib/audit.js';
+import { computeItemPricing } from '../lib/pricing.js';
 import { addOrderEvent, addTaskEvent } from '../lib/events.js';
 import { generateOrderNo } from '../lib/ids.js';
 import { computeGiftDiscount, loadUsableGiftCode, scopeLabel } from '../lib/gift-codes.js';
@@ -117,9 +119,17 @@ export function buildOrderDetail(orderNo) {
     .get(order.id);
   const payment = paymentRow
     ? {
+        id: paymentRow.id,
         method: paymentRow.method,
         status: paymentRow.status,
+        // 旧静态地址保留字段名但已不可直接访问（/uploads/pay-* 被拦），前端应使用下面两个鉴权 URL
         screenshotUrl: toUploadUrl(paymentRow.screenshot_path),
+        screenshotViewUrl: paymentRow.screenshot_path
+          ? `/api/orders/${encodeURIComponent(order.order_no)}/payment-screenshot`
+          : null,
+        screenshotAdminUrl: paymentRow.screenshot_path
+          ? `/api/admin/payments/${paymentRow.id}/screenshot`
+          : null,
         ocrNumber: paymentRow.ocr_number,
         reviewNote: paymentRow.review_note,
         createdAt: paymentRow.created_at,
@@ -306,6 +316,16 @@ router.post('/', requireUser, (req, res, next) => {
     }
 
     const body = req.body || {};
+    const clientOrderId = str(body.clientOrderId).slice(0, 64) || null;
+    if (clientOrderId) {
+      const existing = db
+        .prepare('SELECT * FROM orders WHERE user_id = ? AND client_order_id = ? AND deleted_at IS NULL')
+        .get(user.id, clientOrderId);
+      if (existing) {
+        // 重复提交（连点两次/网络重试）直接返回同一笔订单，不再扣库存
+        return res.json({ order: buildOrderDetail(existing.order_no), duplicated: true });
+      }
+    }
     const parsedItems = validateItems(body.items);
     const deliveryMethod = assertDeliveryMethod(body.deliveryMethod);
     const timeSlot = assertTimeSlot(body.timeSlot);
@@ -370,11 +390,15 @@ router.post('/', requireUser, (req, res, next) => {
         const needed = requiredQty.get(item.productId);
         if (!isPresale && stock < needed) throw badRequest(`商品「${product.name}」库存不足`);
 
-        const unitPrice =
-          product.base_price +
-          (spec ? Number(spec.delta) || 0 : 0) +
-          (color ? Number(color.delta) || 0 : 0) +
-          (pattern ? Number(pattern.delta) || 0 : 0);
+        // 统一计价实现（与赠货码预览共用），保证「看到的价」=「下单的价」
+        const unitPrice = computeItemPricing(product, {
+          specName: item.specName,
+          colorName: item.colorName,
+          patternName: item.patternName,
+        }).unitPrice;
+        if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+          throw badRequest(`商品「${product.name}」的价格配置异常（出现负数），请联系管理员`);
+        }
         // 颜色或图案里能选「定制」项：选中即标记该条目为定制
         const isCustomItem = Boolean((color && color.custom) || (pattern && pattern.custom));
         resolved.push({
@@ -392,6 +416,9 @@ router.post('/', requireUser, (req, res, next) => {
       }
 
       const totalAmount = resolved.reduce((sum, it) => sum + it.subtotal, 0);
+      if (!Number.isFinite(totalAmount) || totalAmount < 0) {
+        throw badRequest('订单金额异常，请联系管理员');
+      }
       let giftRow = null;
       let giftDiscount = 0;
       let freeIndexes = new Set();
@@ -402,16 +429,19 @@ router.post('/', requireUser, (req, res, next) => {
           specName: it.spec ? it.spec.name : '',
           colorName: it.color ? it.color.name : '',
           patternName: it.pattern ? it.pattern.name : '',
+          quantity: it.quantity,
           subtotal: it.subtotal,
         }));
+        // 全场免单码有单次件数上限，超限时给出结构化错误（避免一次核销免掉上百件）
         const calc = computeGiftDiscount(giftRow, giftItems);
-        giftDiscount = Math.min(calc.discount, totalAmount);
+        // 折扣必须落在 [0, totalAmount] 内，绝不能出现负数折扣（否则会算出 0 元且被判已支付）
+        giftDiscount = Math.max(0, Math.min(calc.discount, totalAmount));
         freeIndexes = new Set(calc.freeIndexes);
         if (giftDiscount <= 0 && totalAmount > 0) throw badRequest('该赠货码不适用于当前商品');
       }
 
       const payableAmount = Math.max(0, totalAmount - giftDiscount);
-      const fullGift = Boolean(giftRow) && payableAmount === 0;
+      const fullGift = Boolean(giftRow) && totalAmount > 0 && payableAmount === 0;
       if (paymentMethod === 'gift' && !fullGift) {
         throw badRequest('赠货码未覆盖全部商品，请选择微信或支付宝支付剩余金额');
       }
@@ -421,8 +451,8 @@ router.post('/', requireUser, (req, res, next) => {
       const insertOrder = db.prepare(`
         INSERT INTO orders (order_no, user_id, customer_name, class_name, seat_no, student_id, delivery_method, delivery_detail,
           time_slot, contact_type, contact_value, remark, payment_method, status, total_amount, original_amount, discount_amount,
-          gift_code, has_custom, reject_reason, created_at, updated_at, paid_at, completed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now','localtime'), datetime('now','localtime'), NULL, NULL)
+          gift_code, has_custom, client_order_id, reject_reason, created_at, updated_at, paid_at, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, datetime('now','localtime'), datetime('now','localtime'), NULL, NULL)
       `);
 
       let info = null;
@@ -448,11 +478,25 @@ router.post('/', requireUser, (req, res, next) => {
             totalAmount,
             giftDiscount,
             giftDiscount > 0 ? giftRow.code : null,
-            resolved.some((it) => it.isCustom) ? 1 : 0
+            resolved.some((it) => it.isCustom) ? 1 : 0,
+            clientOrderId
           );
           orderNo = candidate;
         } catch (err) {
-          if (String(err.message || '').includes('UNIQUE') && attempt < 4) continue;
+          if (String(err.message || '').includes('UNIQUE')) {
+            if (clientOrderId) {
+              const dup = db
+                .prepare('SELECT * FROM orders WHERE user_id = ? AND client_order_id = ? AND deleted_at IS NULL')
+                .get(user.id, clientOrderId);
+              if (dup) {
+                orderNo = dup.order_no;
+                orderId = dup.id;
+                info = { lastInsertRowid: dup.id };
+                break;
+              }
+            }
+            if (attempt < 4) continue;
+          }
           throw err;
         }
       }
@@ -461,8 +505,9 @@ router.post('/', requireUser, (req, res, next) => {
 
       const insertItem = db.prepare(`
         INSERT INTO order_items (order_id, product_id, product_name, spec_name, color_name, color_hex, image_url,
-          pattern_name, pattern_image, is_custom, unit_price, quantity, subtotal, need_production, discount_amount, gift_free)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          pattern_name, pattern_image, is_custom, unit_price, quantity, subtotal, need_production, discount_amount, gift_free,
+          stock_deducted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const itemRows = [];
       for (let index = 0; index < resolved.length; index += 1) {
@@ -485,7 +530,8 @@ router.post('/', requireUser, (req, res, next) => {
           it.subtotal,
           it.needProduction ? 1 : 0,
           itemDiscount,
-          free ? 1 : 0
+          free ? 1 : 0,
+          it.isPresale ? 0 : 1
         );
         itemRows.push({
           order_item_id: Number(itemInfo.lastInsertRowid),
@@ -576,6 +622,72 @@ router.post('/', requireUser, (req, res, next) => {
   }
 });
 
+/**
+ * 回补订单占用的资源（库存/赠货码次数/未完成任务）。
+ * 供「用户取消」「未付款超时释放」「管理端删除审批」三处共用，保证口径一致。
+ */
+export function releaseOrderResources(order) {
+  const items = db
+    .prepare('SELECT quantity, product_id, stock_deducted FROM order_items WHERE order_id = ?')
+    .all(order.id);
+  for (const item of items) {
+    // 按下单时固化的 stock_deducted 判断是否扣过库存（不能再读商品当前的预售标记）
+    if (item.product_id && item.stock_deducted === 1) {
+      db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(item.quantity, item.product_id);
+    }
+  }
+
+  db.prepare(`
+    UPDATE production_tasks SET status = 'cancelled', updated_at = datetime('now','localtime')
+    WHERE order_id = ? AND status NOT IN ('done', 'delivered', 'cancelled')
+  `).run(order.id);
+
+  if (order.gift_code) {
+    const gift = db.prepare('SELECT * FROM gift_codes WHERE code = ?').get(order.gift_code);
+    if (gift) {
+      db.prepare('UPDATE gift_codes SET used_count = MAX(0, used_count - 1) WHERE id = ?').run(gift.id);
+      db.prepare('DELETE FROM gift_code_usages WHERE gift_code_id = ? AND order_id = ?').run(gift.id, order.id);
+    }
+  }
+}
+
+/** 取消一笔未付款订单（资源回补 + 置 cancelled + 事件） */
+export function cancelOrderWithRelease(order, eventLabel) {
+  releaseOrderResources(order);
+  db.prepare(
+    "UPDATE orders SET status = 'cancelled', updated_at = datetime('now','localtime') WHERE id = ?"
+  ).run(order.id);
+  addOrderEvent(order.id, 'cancelled', eventLabel);
+}
+
+/** 定时任务：释放超过 N 分钟仍未支付的订单，避免库存和赠货码名额被永久占用 */
+export function releaseExpiredOrders(minutes = 30) {
+  const rows = db
+    .prepare(`
+      SELECT * FROM orders
+      WHERE status = 'pending_payment' AND deleted_at IS NULL
+        AND created_at < datetime('now','localtime', ?)
+    `)
+    .all(`-${Math.max(1, Number(minutes) || 30)} minutes`);
+  let released = 0;
+  for (const order of rows) {
+    db.exec('BEGIN');
+    try {
+      cancelOrderWithRelease(order, `超过 ${minutes} 分钟未支付，系统自动取消`);
+      db.exec('COMMIT');
+      released += 1;
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // ignore
+      }
+      console.error('[orders] 自动取消未付款订单失败：', order.order_no, err.message);
+    }
+  }
+  return released;
+}
+
 router.post('/:orderNo/cancel', requireUser, (req, res, next) => {
   try {
     const order = db
@@ -588,44 +700,7 @@ router.post('/:orderNo/cancel', requireUser, (req, res, next) => {
 
     db.exec('BEGIN');
     try {
-      // 释放现货库存（预售商品下单时未扣减）
-      const items = db
-        .prepare(`
-          SELECT oi.quantity, oi.product_id, p.is_presale
-          FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id
-          WHERE oi.order_id = ?
-        `)
-        .all(order.id);
-      for (const item of items) {
-        if (item.product_id && item.is_presale !== 1) {
-          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?').run(
-            item.quantity,
-            item.product_id
-          );
-        }
-      }
-
-      db.prepare(`
-        UPDATE production_tasks SET status = 'cancelled', updated_at = datetime('now','localtime')
-        WHERE order_id = ? AND status NOT IN ('done', 'delivered', 'cancelled')
-      `).run(order.id);
-
-      // 退回赠货码使用次数
-      if (order.gift_code) {
-        const gift = db.prepare('SELECT * FROM gift_codes WHERE code = ?').get(order.gift_code);
-        if (gift) {
-          db.prepare('UPDATE gift_codes SET used_count = MAX(0, used_count - 1) WHERE id = ?').run(gift.id);
-          db.prepare('DELETE FROM gift_code_usages WHERE gift_code_id = ? AND order_id = ?').run(
-            gift.id,
-            order.id
-          );
-        }
-      }
-
-      db.prepare(
-        "UPDATE orders SET status = 'cancelled', updated_at = datetime('now','localtime') WHERE id = ?"
-      ).run(order.id);
-      addOrderEvent(order.id, 'cancelled', '用户取消未付款订单');
+      cancelOrderWithRelease(order, '用户取消未付款订单');
       db.exec('COMMIT');
     } catch (err) {
       try {
@@ -659,6 +734,29 @@ router.get('/:orderNo', requireUser, (req, res) => {
   return res.json({ order: buildOrderDetail(order.order_no) });
 });
 
+// 用户查看自己订单的支付截图（需登录且是订单所有者）
+router.get('/:orderNo/payment-screenshot', requireUser, (req, res, next) => {
+  try {
+    const order = db
+      .prepare('SELECT * FROM orders WHERE order_no = ? AND user_id = ? AND deleted_at IS NULL')
+      .get(req.params.orderNo, Number(req.user.sub));
+    if (!order) return res.status(404).json({ error: '订单不存在' });
+    const payment = db
+      .prepare(
+        "SELECT * FROM payments WHERE order_id = ? AND screenshot_path IS NOT NULL ORDER BY id DESC LIMIT 1"
+      )
+      .get(order.id);
+    if (!payment) return res.status(404).json({ error: '该订单还没有支付截图' });
+    const abs = path.join(UPLOADS_DIR, path.basename(payment.screenshot_path));
+    if (!fs.existsSync(abs)) return res.status(404).json({ error: '支付截图文件不存在' });
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return res.sendFile(abs);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 router.post('/:orderNo/payment', requireUser, (req, res, next) => {
   try {
     const order = db
@@ -687,19 +785,51 @@ router.post('/:orderNo/payment', requireUser, (req, res, next) => {
       return res.status(400).json({ error: '支付截图不能超过 6MB' });
     }
 
+    const ocrNumber = str(req.body?.ocrNumber).slice(0, 200);
+    const ocrRaw = typeof req.body?.ocrRaw === 'string' ? req.body.ocrRaw.slice(0, 5000) : '';
+    const screenshotHash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+    // 同一张截图 / 同一个支付单号不能再挂到别的订单（防止一份付款发多份货）
+    const dupShot = db
+      .prepare(`
+        SELECT p.order_id FROM payments p
+        WHERE p.screenshot_hash = ? AND p.status != 'rejected' AND p.order_id != ?
+        LIMIT 1
+      `)
+      .get(screenshotHash, order.id);
+    if (dupShot) {
+      return res.status(400).json({ error: '这张支付截图已经用于其他订单，请勿重复提交' });
+    }
+    if (ocrNumber) {
+      const dupOcr = db
+        .prepare(`
+          SELECT p.order_id FROM payments p
+          WHERE p.ocr_number = ? AND p.status != 'rejected' AND p.order_id != ?
+          LIMIT 1
+        `)
+        .get(ocrNumber, order.id);
+      if (dupOcr) {
+        return res.status(400).json({ error: '该支付单号已用于其他订单，请核对后重新提交' });
+      }
+    }
+
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
     const filename = `pay-${order.order_no}-${Date.now()}.${ext}`;
     fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
 
-    const ocrNumber = str(req.body?.ocrNumber).slice(0, 200);
-    const ocrRaw = typeof req.body?.ocrRaw === 'string' ? req.body.ocrRaw.slice(0, 5000) : '';
-
     db.exec('BEGIN');
     try {
       db.prepare(`
-        INSERT INTO payments (order_id, method, screenshot_path, ocr_number, ocr_raw, status, review_note, reviewed_by, reviewed_at, created_at)
-        VALUES (?, ?, ?, ?, ?, 'submitted', NULL, NULL, NULL, datetime('now','localtime'))
-      `).run(order.id, order.payment_method, `uploads/${filename}`, ocrNumber || null, ocrRaw || null);
+        INSERT INTO payments (order_id, method, screenshot_path, ocr_number, ocr_raw, screenshot_hash, status, review_note, reviewed_by, reviewed_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'submitted', NULL, NULL, NULL, datetime('now','localtime'))
+      `).run(
+        order.id,
+        order.payment_method,
+        `uploads/${filename}`,
+        ocrNumber || null,
+        ocrRaw || null,
+        screenshotHash
+      );
 
       db.prepare(
         "UPDATE orders SET status = 'pending_review', reject_reason = NULL, updated_at = datetime('now','localtime') WHERE id = ?"

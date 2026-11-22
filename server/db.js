@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_detail TEXT,
   time_slot TEXT CHECK(time_slot IN ('day_break','noon','evening','evening_study')),
   contact_type TEXT CHECK(contact_type IN ('qq','wechat','phone')),
+  client_order_id TEXT,
   contact_value TEXT,
   remark TEXT,
   payment_method TEXT CHECK(payment_method IN ('wechat','alipay','gift')),
@@ -97,7 +99,8 @@ CREATE TABLE IF NOT EXISTS order_items (
   subtotal INTEGER NOT NULL,
   need_production INTEGER NOT NULL DEFAULT 0,
   discount_amount INTEGER NOT NULL DEFAULT 0,
-  gift_free INTEGER NOT NULL DEFAULT 0
+  gift_free INTEGER NOT NULL DEFAULT 0,
+  stock_deducted INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -107,6 +110,7 @@ CREATE TABLE IF NOT EXISTS payments (
   screenshot_path TEXT,
   ocr_number TEXT,
   ocr_raw TEXT,
+  screenshot_hash TEXT,
   status TEXT NOT NULL DEFAULT 'submitted' CHECK(status IN ('submitted','verified','rejected')),
   review_note TEXT,
   reviewed_by INTEGER,
@@ -124,6 +128,7 @@ CREATE TABLE IF NOT EXISTS gift_codes (
   active INTEGER NOT NULL DEFAULT 1,
   scope_type TEXT NOT NULL DEFAULT 'all',
   scope_json TEXT,
+  max_free_items INTEGER DEFAULT 10,
   created_by INTEGER,
   created_at TEXT
 );
@@ -253,6 +258,21 @@ ensureColumn('order_items', 'is_custom', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'has_custom', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('production_tasks', 'pattern_name', 'TEXT');
 ensureColumn('production_tasks', 'is_custom', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('orders', 'client_order_id', 'TEXT');
+ensureColumn('order_items', 'stock_deducted', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('payments', 'screenshot_hash', 'TEXT');
+ensureColumn('gift_codes', 'max_free_items', 'INTEGER DEFAULT 10');
+
+// 下单幂等：同一用户同一 clientOrderId 只允许一笔在库订单。
+// 索引条件排除已删除订单，否则订单归档后同一幂等键将永远无法再次下单。
+try {
+  db.exec('DROP INDEX IF EXISTS idx_orders_client');
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client ON orders(user_id, client_order_id) WHERE client_order_id IS NOT NULL AND deleted_at IS NULL'
+  );
+} catch (err) {
+  console.warn('[db] 幂等索引创建失败：', err.message);
+}
 
 function img(prompt) {
   return `https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=${encodeURIComponent(prompt)}&image_size=square`;
@@ -281,9 +301,17 @@ function seedStaff() {
         ['maker02', '20230302', 'Maker@123', '烘焙社-小柯', 'prod_external'],
         ['packer01', '20230401', 'Packer@123', '配送组-老陈', 'prod_internal'],
       ]
-    : [
-        ['admin', '20260000', 'Admin123', '管理员', 'super_admin'],
-      ];
+    : (() => {
+        // 生产环境首次启动：密码来自 INIT_ADMIN_PASSWORD，没配就随机生成并只打印一次（不再写死 Admin123）
+        const seedPassword = process.env.INIT_ADMIN_PASSWORD || crypto.randomBytes(12).toString('base64url');
+        if (!process.env.INIT_ADMIN_PASSWORD) {
+          console.warn('==============================================================');
+          console.warn('[db] 首次启动已生成随机超管账号：admin / 20260000');
+          console.warn(`[db] 初始密码（只显示这一次，请立即登录修改）：${seedPassword}`);
+          console.warn('==============================================================');
+        }
+        return [['admin', '20260000', seedPassword, '管理员', 'super_admin']];
+      })();
   for (const [username, studentId, password, displayName, role] of staffSeeds) {
     insert.run(username, studentId, hashPassword(password), displayName, role);
   }

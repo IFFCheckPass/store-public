@@ -74,19 +74,25 @@ function orderItemViews(orderId) {
     }));
 }
 
-function taskView(row) {
+/**
+ * 生产任务对外视图。
+ *
+ * @param {object} row        production_tasks JOIN orders 的行
+ * @param {string} viewerRole 当前请求者的 staff 角色（req.staff.role）
+ *
+ * 隐私边界：prod_external 是校外的生产合作方，只需要「做什么、做多少」，
+ * 不返回下单人 PII（姓名/座号/班级）与联系方式、收货方式。
+ * prod_internal（校内打包/配送）与 staff 角色保持原有字段不变。
+ */
+function taskView(row, viewerRole) {
   const labels = taskLabels(row.type);
+  const hideCustomerInfo = viewerRole === 'prod_external';
   return {
     id: row.id,
     type: row.type,
     items: row.type === 'internal' ? orderItemViews(row.order_id) : undefined,
     orderNo: row.order_no,
-    className: row.class_name,
     timeSlot: row.time_slot,
-    contactType: row.contact_type,
-    contactValue: row.contact_value,
-    deliveryMethod: row.delivery_method,
-    deliveryDetail: row.delivery_detail,
     productName: row.product_name,
     specName: row.spec_name,
     colorName: row.color_name,
@@ -94,14 +100,24 @@ function taskView(row) {
     isCustom: row.is_custom === 1,
     imageUrl: row.image_url,
     quantity: row.quantity,
-    customerName: row.customer_name || null,
-    seatNo: row.seat_no || null,
     status: row.status,
     statusLabel: labels[row.status] || row.status,
     note: row.note,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     events: taskEvents(row.id),
+    // 仅内部角色下发：外部生产账号拿到的是空对象，字段名不会出现在响应里
+    ...(hideCustomerInfo
+      ? {}
+      : {
+          className: row.class_name,
+          contactType: row.contact_type,
+          contactValue: row.contact_value,
+          deliveryMethod: row.delivery_method,
+          deliveryDetail: row.delivery_detail,
+          customerName: row.customer_name || null,
+          seatNo: row.seat_no || null,
+        }),
   };
 }
 
@@ -185,7 +201,7 @@ router.get('/tasks', requireStaff(['prod_external', 'prod_internal', 'super_admi
     )
     .all(...params);
 
-  return res.json({ tasks: rows.map(taskView) });
+  return res.json({ tasks: rows.map((row) => taskView(row, role)) });
 });
 
 router.get('/stats', requireStaff(['prod_external', 'prod_internal', 'super_admin', 'admin']), (req, res) => {
@@ -234,6 +250,20 @@ router.post('/tasks/:id/status', requireStaff(['prod_external', 'prod_internal',
       return res.status(403).json({ error: '无权限执行该操作' });
     }
 
+    const actorId = Number(req.staff.sub);
+    const actorName = req.staff.name || '';
+
+    // 认领后锁定：已有 assignee 的任务只允许本人或 super_admin 处理。
+    // 尚未认领（assignee_id 为空）的任务仍可由任意有权限账号接手。
+    if (
+      role !== 'super_admin' &&
+      task.assignee_id !== null &&
+      task.assignee_id !== undefined &&
+      Number(task.assignee_id) !== actorId
+    ) {
+      return res.status(403).json({ error: '该任务已被其他账号认领，无权修改' });
+    }
+
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(task.order_id);
     if (!order) return res.status(404).json({ error: '订单不存在' });
     if (order.deleted_at || order.status === 'deleted' || order.status === 'cancelled') {
@@ -254,8 +284,6 @@ router.post('/tasks/:id/status', requireStaff(['prod_external', 'prod_internal',
     }
 
     const note = str(req.body?.note).slice(0, 500);
-    const actorId = Number(req.staff.sub);
-    const actorName = req.staff.name || '';
 
     db.exec('BEGIN');
     try {
@@ -281,7 +309,7 @@ router.post('/tasks/:id/status', requireStaff(['prod_external', 'prod_internal',
     }
 
     const updated = db.prepare('SELECT * FROM production_tasks WHERE id = ?').get(id);
-    return res.json({ task: taskView(updated) });
+    return res.json({ task: taskView(updated, role) });
   } catch (err) {
     return next(err);
   }

@@ -7,7 +7,7 @@ import cookieParser from 'cookie-parser';
 import './db.js';
 import authRouter from './routes/auth.js';
 import productsRouter from './routes/products.js';
-import ordersRouter from './routes/orders.js';
+import ordersRouter, { releaseExpiredOrders } from './routes/orders.js';
 import productionRouter from './routes/production.js';
 import adminRouter from './routes/admin.js';
 import giftCodesRouter from './routes/giftcodes.js';
@@ -24,6 +24,35 @@ const UPLOADS_DIR =
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const app = express();
+app.disable('x-powered-by');
+
+// 安全响应头（无内联脚本，CSP 可收紧到同源脚本）
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+  );
+  next();
+});
+
+// 只接受 HTTPS：Cloudflare 会带 x-forwarded-proto，明文 http 访问一律 308 跳到 https
+app.use((req, res, next) => {
+  const proto = String(req.headers['x-forwarded-proto'] || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  if (proto === 'http') {
+    const host = req.headers.host || '';
+    return res.redirect(308, `https://${host}${req.originalUrl}`);
+  }
+  return next();
+});
+
 // 普通接口 body 上限 10MB；备份导入的体积校验放到该路由的鉴权之后（见 admin.js），
 // 避免未认证请求先把 200MB 读进内存造成 OOM。
 const jsonParser = express.json({ limit: '10mb' });
@@ -50,6 +79,13 @@ app.use('/api/admin', adminRouter);
 
 // 浏览器支持 WebP 时自动返回同名 800px WebP（数据里的路径不变，老浏览器仍拿原图）
 app.use('/img', serveWebpWhenSupported(path.join(PUBLIC_DIR, 'img')));
+// 支付截图含付款人信息：禁止静态直读，只能通过订单归属/staff 鉴权接口获取
+app.use('/uploads', (req, res, next) => {
+  if (req.path.startsWith('/pay-')) {
+    return res.status(404).json({ error: '文件不存在' });
+  }
+  return next();
+});
 app.use('/uploads', serveWebpWhenSupported(UPLOADS_DIR));
 app.use('/uploads', express.static(UPLOADS_DIR));
 // 前端是免构建的原生 ESM，更新后必须立即生效：让浏览器每次回源验证，别吃 4 小时缓存
@@ -98,7 +134,9 @@ app.use((err, req, res, next) => {
       ? '请求体不是合法的 JSON'
       : err?.type === 'entity.too.large'
         ? '请求体过大'
-        : err?.message || '服务器内部错误';
+        : status >= 500
+          ? '服务器内部错误，请稍后重试'
+          : err?.message || '请求失败';
   res.status(status).json({ error: message });
 });
 
@@ -107,6 +145,16 @@ const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[campus-sales] server running at http://0.0.0.0:${PORT}`);
 });
+
+// 每 60 秒释放超时未支付订单（回补库存/赠货码名额），避免库存被长期锁死
+setInterval(() => {
+  try {
+    const released = releaseExpiredOrders(30);
+    if (released > 0) console.log(`[orders] 已自动取消 ${released} 笔超时未支付订单`);
+  } catch (err) {
+    console.error('[orders] 超时订单清理失败：', err.message);
+  }
+}, 60 * 1000).unref();
 
 // 启动后异步补齐 WebP：新增/替换的图片自动转换，不阻塞服务启动
 setTimeout(() => {
